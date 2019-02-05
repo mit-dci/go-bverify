@@ -70,6 +70,16 @@ func (i *InteriorNode) GetRightChild() Node {
 	return i.rightChild
 }
 
+// HasLeft returns true if the left child of this node is not nil
+func (i *InteriorNode) HasLeft() bool {
+	return i.leftChild != nil
+}
+
+// HasRight returns true if the left child of this node is not nil
+func (i *InteriorNode) HasRight() bool {
+	return i.rightChild != nil
+}
+
 // SetValue is the implementation of Node.SetValue
 func (i *InteriorNode) SetValue(value []byte) {
 	panic("Cannot set value of an interior node")

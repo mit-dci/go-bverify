@@ -1,5 +1,7 @@
 package mpt
 
+import "github.com/mit-dci/go-bverify/utils"
+
 // NodeType is an enum for the various types of nodes we know.
 // Used in serialization/deserialization
 type NodeType byte
@@ -101,6 +103,16 @@ type Node interface {
 	Equals(node Node) bool
 }
 
+// GetNodeHeight returns the height of a node in the MPT, calculated bottom (leaves) up.
+func GetNodeHeight(node Node) int {
+	if node.IsLeaf() {
+		// each leaf is at height zero
+		return 0
+	}
+
+	return utils.Max(GetNodeHeight(node.GetLeftChild()), GetNodeHeight(node.GetRightChild())) + 1
+}
+
 // NodeFromBytes will deserialize the proper node type from a byte slice
 func NodeFromBytes(b []byte) (Node, error) {
 	if b[0] == byte(NodeTypeStub) {
@@ -124,4 +136,43 @@ func NodeFromBytes(b []byte) (Node, error) {
 	}
 
 	return nil, nil
+}
+
+// UpdateNodeFromBytes tries updating from the passed byte slice creating
+// new nodes where it's not needed, preserving ones known in n and not in the update.
+func UpdateNodeFromBytes(n Node, b []byte) (Node, error) {
+	n2, err := NodeFromBytes(b)
+	if err != nil {
+		return nil, err
+	}
+	return UpdateNode(n, n2)
+}
+
+// UpdateNode tries updating from the passed node creating
+// new nodes where it's not needed, preserving ones known in n and not in the update.
+func UpdateNode(n, n2 Node) (Node, error) {
+	var err error
+	in, ok := n2.(*InteriorNode)
+	if ok {
+		var left Node
+		var right Node
+		if n != nil {
+			left = n.GetLeftChild()
+			right = n.GetRightChild()
+		}
+		if in.HasLeft() {
+			left, err = UpdateNode(left, in.GetLeftChild())
+			if err != nil {
+				return nil, err
+			}
+		}
+		if in.HasRight() {
+			right, err = UpdateNode(right, in.GetRightChild())
+			if err != nil {
+				return nil, err
+			}
+		}
+		return NewInteriorNode(left, right)
+	}
+	return n2, nil
 }
