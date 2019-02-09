@@ -2,8 +2,9 @@ package wire
 
 import (
 	"bytes"
+	"fmt"
 
-	"github.com/mit-dci/lit/wire"
+	"github.com/mit-dci/go-bverify/crypto"
 )
 
 type SignedCreateLogStatement struct {
@@ -73,38 +74,80 @@ func (scls *SignedCreateLogStatement) Bytes() []byte {
 	return buf.Bytes()
 }
 
-func NewLogStatementFromBytes(b []byte) *LogStatement {
+func NewLogStatementFromBytes(b []byte) (*LogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	ls := new(LogStatement)
 	buf.Read(ls.LogID[:])
-	idx, _ := wire.ReadVarInt(buf, 0)
-	statement, _ := wire.ReadVarBytes(buf, 0, 256, "statement")
+	idx, err := ReadVarInt(buf)
+	if err != nil {
+		return nil, err
+	}
+	statement, err := ReadVarBytes(buf, 256, "statement")
+	if err != nil {
+		return nil, err
+	}
 	ls.Index = idx
 	ls.Statement = statement
-	return ls
+	return ls, nil
 }
 
-func NewSignedLogStatementFromBytes(b []byte) *SignedLogStatement {
+func NewSignedLogStatementFromBytes(b []byte) (*SignedLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	sls := new(SignedLogStatement)
-	buf.Read(sls.Signature[:])
-	sls.Statement = NewLogStatementFromBytes(buf.Bytes())
-	return sls
+	n, err := buf.Read(sls.Signature[:])
+	if err != nil {
+		return nil, err
+	}
+	if n < 64 {
+		return nil, fmt.Errorf("Unexpected end of buffer")
+	}
+
+	sls.Statement, err = NewLogStatementFromBytes(buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return sls, nil
 }
 
-func NewCreateLogStatementFromBytes(b []byte) *CreateLogStatement {
+func NewCreateLogStatementFromBytes(b []byte) (*CreateLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	cls := new(CreateLogStatement)
-	buf.Read(cls.ControllingKey[:])
-	statement, _ := wire.ReadVarBytes(buf, 0, 256, "statement")
+	n, err := buf.Read(cls.ControllingKey[:])
+	if err != nil {
+		return nil, err
+	}
+	if n < 33 {
+		return nil, fmt.Errorf("Unexpected end of buffer")
+	}
+	statement, err := ReadVarBytes(buf, 256, "statement")
+	if err != nil {
+		return nil, err
+	}
 	cls.InitialStatement = statement
-	return cls
+	return cls, nil
 }
 
-func NewSignedCreateLogStatementFromBytes(b []byte) *SignedCreateLogStatement {
+func NewSignedCreateLogStatementFromBytes(b []byte) (*SignedCreateLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	scls := new(SignedCreateLogStatement)
-	buf.Read(scls.Signature[:])
-	scls.CreateStatement = NewCreateLogStatementFromBytes(buf.Bytes())
-	return scls
+	n, err := buf.Read(scls.Signature[:])
+	if err != nil {
+		return nil, err
+	}
+	if n < 64 {
+		return nil, fmt.Errorf("Unexpected end of buffer")
+	}
+	scls.CreateStatement, err = NewCreateLogStatementFromBytes(buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return scls, nil
+}
+
+func (scls *SignedCreateLogStatement) VerifySignature() error {
+	return crypto.VerifySig(scls.CreateStatement.Bytes(), scls.CreateStatement.ControllingKey, scls.Signature)
+}
+
+func (sls *SignedLogStatement) VerifySignature(controllingPubKey [33]byte) error {
+	return crypto.VerifySig(sls.Statement.Bytes(), controllingPubKey, sls.Signature)
 }

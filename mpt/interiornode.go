@@ -186,15 +186,19 @@ func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	leftNode, err := NodeFromBytes(left)
-	if err != nil {
-		return nil, err
+	var leftNode, rightNode Node
+	if len(left) > 0 {
+		leftNode, err = NodeFromBytes(left)
+		if err != nil {
+			return nil, err
+		}
 	}
-	rightNode, err := NodeFromBytes(right)
-	if err != nil {
-		return nil, err
+	if len(right) > 0 {
+		rightNode, err = NodeFromBytes(right)
+		if err != nil {
+			return nil, err
+		}
 	}
-
 	return NewInteriorNode(leftNode, rightNode)
 }
 
@@ -202,7 +206,15 @@ func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
 func (i *InteriorNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeInterior))
-	wire.WriteVarBytes(&buf, 0, i.leftChild.Bytes())
-	wire.WriteVarBytes(&buf, 0, i.rightChild.Bytes())
+	if i.leftChild != nil {
+		wire.WriteVarBytes(&buf, 0, i.leftChild.Bytes())
+	} else {
+		wire.WriteVarBytes(&buf, 0, []byte{})
+	}
+	if i.rightChild != nil {
+		wire.WriteVarBytes(&buf, 0, i.rightChild.Bytes())
+	} else {
+		wire.WriteVarBytes(&buf, 0, []byte{})
+	}
 	return buf.Bytes()
 }

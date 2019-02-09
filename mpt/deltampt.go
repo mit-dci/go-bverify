@@ -1,6 +1,10 @@
 package mpt
 
-import "github.com/mit-dci/go-bverify/utils"
+import (
+	"fmt"
+
+	"github.com/mit-dci/go-bverify/utils"
+)
 
 // DeltaMPT tracks the changes to a Merkle Prefix Trie (a delta).
 // This delta contains ONLY the changed nodes. Nodes that have
@@ -134,4 +138,24 @@ func copyChangesOnlyHelper(currentNode Node) (Node, error) {
 	}
 
 	return NewInteriorNode(leftChild, rightChild)
+}
+
+// Bytes serializes the DeltaMPT into a byte slice
+func (dm *DeltaMPT) Bytes() []byte {
+	return dm.root.Bytes()
+}
+
+// NewDeltaMPTFromBytes parses a byte slice into a Delta MPT
+func NewDeltaMPTFromBytes(b []byte) (*DeltaMPT, error) {
+	possibleRoot, err := NodeFromBytes(b)
+	if err != nil {
+		return nil, err
+	}
+
+	in, ok := possibleRoot.(*InteriorNode)
+	if !ok {
+		return nil, fmt.Errorf("The passed byte array is no valid tree")
+	}
+
+	return &DeltaMPT{root: in}, nil
 }
