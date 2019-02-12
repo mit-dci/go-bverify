@@ -80,14 +80,10 @@ func (s *Stub) Changed() bool {
 }
 
 // MarkChangedAll is the implementation of Node.MarkChangedAll
-func (s *Stub) MarkChangedAll() {
-
-}
+func (s *Stub) MarkChangedAll() {}
 
 // MarkUnchangedAll is the implementation of Node.MarkUnchangedAll
-func (s *Stub) MarkUnchangedAll() {
-
-}
+func (s *Stub) MarkUnchangedAll() {}
 
 // CountHashesRequiredForGetHash is the implementation of Node.CountHashesRequiredForGetHash
 func (s *Stub) CountHashesRequiredForGetHash() int {
@@ -116,8 +112,9 @@ func (s *Stub) NonEmptyLeafNodesInSubtree() int {
 
 // Equals is the implementation of Node.Equals
 func (s *Stub) Equals(s2 Node) bool {
-	if s2.(*Stub) != nil {
-		return bytes.Equal(s2.(*Stub).GetHash(), s.GetHash())
+	stub2, ok := s2.(*Stub)
+	if ok {
+		return bytes.Equal(stub2.GetHash(), s.GetHash())
 	}
 	return false
 }
