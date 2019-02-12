@@ -2,6 +2,7 @@ package mpt
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/mit-dci/go-bverify/crypto"
 	"github.com/mit-dci/go-bverify/utils"
@@ -148,14 +149,23 @@ func (dln *DictionaryLeafNode) Equals(n Node) bool {
 
 // NewDictionaryLeafNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
 func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("Need at least 1 byte")
+	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
 	key, err := wire.ReadVarBytes(buf, 0, 256, "key")
 	if err != nil {
 		return nil, err
 	}
+	if len(key) == 0 {
+		return nil, fmt.Errorf("Key should be at least 1 byte")
+	}
 	value, err := wire.ReadVarBytes(buf, 0, 256, "value")
 	if err != nil {
 		return nil, err
+	}
+	if len(value) == 0 {
+		return nil, fmt.Errorf("Value should be at least 1 byte")
 	}
 	return NewDictionaryLeafNode(key, value)
 }

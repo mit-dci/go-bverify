@@ -2,13 +2,14 @@ package mpt
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/mit-dci/go-bverify/utils"
 	"github.com/mit-dci/lit/wire"
 )
 
 // SetLeafNode represents a leaf node in a Merkle Prefix Trie
-// (MPT) dictionary. Dictionary leaf nodes store a key and a value,
+// (MPT) dictionary. Set leaf nodes store a key and a value,
 // both of which are fixed length byte arrays (usually
 // the outputs of a cryptographic hash). The value of
 // a leaf can be updated.
@@ -133,10 +134,16 @@ func (sln *SetLeafNode) Equals(n Node) bool {
 
 // NewSetLeafNodeFromBytes deserializes the passed byteslice into a SetLeafNode
 func NewSetLeafNodeFromBytes(b []byte) (*SetLeafNode, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("Passed byte slice should be more than 0 bytes")
+	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
 	value, err := wire.ReadVarBytes(buf, 0, 256, "value")
 	if err != nil {
 		return nil, err
+	}
+	if len(value) == 0 {
+		return nil, fmt.Errorf("Value should be more than 0 bytes")
 	}
 	return NewSetLeafNode(value)
 }

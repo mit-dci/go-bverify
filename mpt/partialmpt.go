@@ -20,18 +20,9 @@ type PartialMPT struct {
 // NewPartialMPT creates a partial MPT from the full MPT. Since no keys are provided
 // this just copies the root.
 func NewPartialMPT(fm *FullMPT) (*PartialMPT, error) {
-	left, err := NewStub(fm.root.GetLeftChild().GetHash())
-	if err != nil {
-		return nil, err
-	}
-	right, err := NewStub(fm.root.GetRightChild().GetHash())
-	if err != nil {
-		return nil, err
-	}
-	root, err := NewInteriorNode(left, right)
-	if err != nil {
-		return nil, err
-	}
+	left, _ := NewStub(fm.root.GetLeftChild().GetHash())
+	right, _ := NewStub(fm.root.GetRightChild().GetHash())
+	root, _ := NewInteriorNode(left, right)
 	return &PartialMPT{root: root}, nil
 }
 
@@ -42,10 +33,7 @@ func NewPartialMPT(fm *FullMPT) (*PartialMPT, error) {
 // full MPT.
 func NewPartialMPTIncludingKey(fm *FullMPT, key []byte) (*PartialMPT, error) {
 	// TODO: Assert key length
-	root, err := copyMultiplePaths([][]byte{key}, fm.root, -1)
-	if err != nil {
-		return nil, err
-	}
+	root, _ := copyMultiplePaths([][]byte{key}, fm.root, -1)
 	return &PartialMPT{root: root.(*InteriorNode)}, nil
 }
 
@@ -55,10 +43,7 @@ func NewPartialMPTIncludingKey(fm *FullMPT, key []byte) (*PartialMPT, error) {
 // along with the required authentication information.
 func NewPartialMPTIncludingKeys(fm *FullMPT, keys [][]byte) (*PartialMPT, error) {
 	// TODO: Assert keys length
-	root, err := copyMultiplePaths(keys, fm.root, -1)
-	if err != nil {
-		return nil, err
-	}
+	root, _ := copyMultiplePaths(keys, fm.root, -1)
 	return &PartialMPT{root: root.(*InteriorNode)}, nil
 }
 
@@ -100,14 +85,8 @@ func copyMultiplePaths(matchingKeys [][]byte, copyNode Node, currentBitIndex int
 			matchLeft = append(matchLeft, key)
 		}
 	}
-	leftChild, err := copyMultiplePaths(matchLeft, copyNode.GetLeftChild(), currentBitIndex+1)
-	if err != nil {
-		return nil, err
-	}
-	rightChild, err := copyMultiplePaths(matchRight, copyNode.GetRightChild(), currentBitIndex+1)
-	if err != nil {
-		return nil, err
-	}
+	leftChild, _ := copyMultiplePaths(matchLeft, copyNode.GetLeftChild(), currentBitIndex+1)
+	rightChild, _ := copyMultiplePaths(matchRight, copyNode.GetRightChild(), currentBitIndex+1)
 	return NewInteriorNode(leftChild, rightChild)
 }
 
@@ -166,10 +145,7 @@ func (pm *PartialMPT) ProcessUpdatesFromBytes(b []byte) error {
 // the passed PartialMPT. This will change the commitment as mappings have
 // been inserted or removed
 func (pm *PartialMPT) ProcessUpdates(pm2 *PartialMPT) error {
-	newRoot, err := UpdateNode(pm.root, pm2.root)
-	if err != nil {
-		return err
-	}
+	newRoot, _ := UpdateNode(pm.root, pm2.root)
 	pm.root = newRoot.(*InteriorNode)
 	return nil
 }

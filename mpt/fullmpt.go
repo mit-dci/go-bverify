@@ -22,18 +22,9 @@ type FullMPT struct {
 
 // NewFullMPT creates an empty Merkle Prefix Trie
 func NewFullMPT() (*FullMPT, error) {
-	left, err := NewEmptyLeafNode()
-	if err != nil {
-		return nil, err
-	}
-	right, err := NewEmptyLeafNode()
-	if err != nil {
-		return nil, err
-	}
-	root, err := NewInteriorNode(left, right)
-	if err != nil {
-		return nil, err
-	}
+	left, _ := NewEmptyLeafNode()
+	right, _ := NewEmptyLeafNode()
+	root, _ := NewInteriorNode(left, right)
 	return &FullMPT{root: root}, nil
 }
 
@@ -77,10 +68,7 @@ func insertHelper(key, value []byte, currentBitIndex int, currentNode Node) (Nod
 		}
 
 		// If the key is not in the tree, add it
-		nodeToAdd, err := NewDictionaryLeafNode(key, value)
-		if err != nil {
-			return nil, err
-		}
+		nodeToAdd, _ := NewDictionaryLeafNode(key, value)
 		if currentNode.IsEmpty() {
 			// If the current leaf is empty, just replace it
 			return nodeToAdd, nil
@@ -91,17 +79,11 @@ func insertHelper(key, value []byte, currentBitIndex int, currentNode Node) (Nod
 	}
 	bit := utils.GetBit(key, uint(currentBitIndex+1))
 	if bit {
-		newRightChild, err := insertHelper(key, value, currentBitIndex+1, currentNode.GetRightChild())
-		if err != nil {
-			return nil, err
-		}
+		newRightChild, _ := insertHelper(key, value, currentBitIndex+1, currentNode.GetRightChild())
 		currentNode.SetRightChild(newRightChild)
 		return currentNode, nil
 	}
-	newLeftChild, err := insertHelper(key, value, currentBitIndex+1, currentNode.GetLeftChild())
-	if err != nil {
-		return nil, err
-	}
+	newLeftChild, _ := insertHelper(key, value, currentBitIndex+1, currentNode.GetLeftChild())
 	currentNode.SetLeftChild(newLeftChild)
 	return currentNode, nil
 
@@ -113,14 +95,8 @@ func split(a, b *DictionaryLeafNode, currentBitIndex int) (Node, error) {
 	// Still collision, split again
 	if bitA == bitB {
 		// Recursively split
-		res, err := split(a, b, currentBitIndex+1)
-		if err != nil {
-			return nil, err
-		}
-		empty, err := NewEmptyLeafNode()
-		if err != nil {
-			return nil, err
-		}
+		res, _ := split(a, b, currentBitIndex+1)
+		empty, _ := NewEmptyLeafNode()
 
 		if bitA {
 			return NewInteriorNode(empty, res)
@@ -192,10 +168,7 @@ func deleteHelper(key []byte, currentBitIndex int, currentNode Node, isRoot bool
 	rightChild := currentNode.GetRightChild()
 	if bit {
 		// delete key from the right subtree
-		newRightChild, err := deleteHelper(key, currentBitIndex+1, rightChild, false)
-		if err != nil {
-			return nil, err
-		}
+		newRightChild, _ := deleteHelper(key, currentBitIndex+1, rightChild, false)
 		// if left subtree is empty, and rightChild is leaf
 		// we push the newRightChild back up the MPT
 		if leftChild.IsEmpty() && newRightChild.IsLeaf() && !isRoot {
@@ -215,10 +188,7 @@ func deleteHelper(key []byte, currentBitIndex int, currentNode Node, isRoot bool
 		currentNode.SetRightChild(newRightChild)
 		return currentNode, nil
 	}
-	newLeftChild, err := deleteHelper(key, currentBitIndex+1, leftChild, false)
-	if err != nil {
-		return nil, err
-	}
+	newLeftChild, _ := deleteHelper(key, currentBitIndex+1, leftChild, false)
 	if rightChild.IsEmpty() && newLeftChild.IsLeaf() && !isRoot {
 		return newLeftChild, nil
 	}

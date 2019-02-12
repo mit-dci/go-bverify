@@ -82,6 +82,9 @@ func TestInterorNodeEquals(t *testing.T) {
 	in, _ := NewInteriorNode(dln, dln2)
 	in2, _ := NewInteriorNode(dln, dln2)
 	in3, _ := NewInteriorNode(dln2, dln)
+	in4, _ := NewInteriorNode(nil, dln)
+	in5, _ := NewInteriorNode(dln2, nil)
+	in6, _ := NewInteriorNode(nil, nil)
 
 	if !in.Equals(in2) {
 		t.Error("Expected two interior nodes with the same children to n1.Equals(n2) == true (got false)")
@@ -93,6 +96,22 @@ func TestInterorNodeEquals(t *testing.T) {
 
 	if in.Equals(dln) {
 		t.Error("Expected interior node and dictionaryleafnode to n1.Equals(n2) == false (got true)")
+	}
+
+	if in3.Equals(in4) {
+		t.Error("Expected two interior nodes with different children to n1.Equals(n2) == false (got true)")
+	}
+	if in3.Equals(in5) {
+		t.Error("Expected two interior nodes with different children to n1.Equals(n2) == false (got true)")
+	}
+	if in4.Equals(in3) {
+		t.Error("Expected two interior nodes with different children to n1.Equals(n2) == false (got true)")
+	}
+	if in6.Equals(in4) {
+		t.Error("Expected two interior nodes with different children to n1.Equals(n2) == false (got true)")
+	}
+	if in5.Equals(in6) {
+		t.Error("Expected two interior nodes with different children to n1.Equals(n2) == false (got true)")
 	}
 }
 
@@ -120,6 +139,22 @@ func TestInterorNodeGetHash(t *testing.T) {
 	}
 }
 
+func testSerializeEqual(in *InteriorNode, t *testing.T) {
+	b := in.Bytes()
+	n, err := NodeFromBytes(b)
+	if err != nil {
+		t.Error(err.Error())
+	}
+	in2, ok := n.(*InteriorNode)
+	if !ok {
+		t.Error("Failed to deserialize InteriorNode")
+		return
+	}
+	if !in2.Equals(in) {
+		t.Error("Deserialized node did not equal input")
+	}
+}
+
 func TestInteriorNodeSerialize(t *testing.T) {
 	k1, _ := hex.DecodeString("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef") // Key 1
 	v1, _ := hex.DecodeString("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321") // Value 1
@@ -128,18 +163,54 @@ func TestInteriorNodeSerialize(t *testing.T) {
 	dln, _ := NewDictionaryLeafNode(k1, v1)
 	dln2, _ := NewDictionaryLeafNode(k2, v2)
 	in, _ := NewInteriorNode(dln, dln2)
-	b := in.Bytes()
-	n, err := NodeFromBytes(b)
-	if err != nil {
-		t.Error(err.Error())
+	testSerializeEqual(in, t)
+
+	// Test with left node nil
+	in.SetLeftChild(nil)
+	testSerializeEqual(in, t)
+
+	// Test with right node nil
+	in.SetLeftChild(dln)
+	in.SetRightChild(nil)
+	testSerializeEqual(in, t)
+
+	// Test with both nil
+	in.SetLeftChild(nil)
+	in.SetRightChild(nil)
+	testSerializeEqual(in, t)
+
+	// Test invalid byte slices
+
+	_, err := NewInteriorNodeFromBytes([]byte{}) // Empty byte slice
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
-	in2, ok := n.(*InteriorNode)
-	if !ok {
-		t.Error("Failed to deserialize DictionaryLeafNode")
+
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0xAB}) // Length for left, but no bytes with actual data
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
-	if !in2.Equals(in) {
-		t.Error("Deserialized node did not equal input")
+
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF}) // No data for left nor right
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
+
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00}) // zero-length key
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
+	}
+
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x01, 0xFF, 0x00}) // invalid type for left node
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
+	}
+
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00, 0x01, 0xFF}) // invalid type for right node
+	if err == nil {
+		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
+	}
+
 }
 
 func TestInteriorNodeCounts(t *testing.T) {

@@ -1,6 +1,10 @@
 package mpt
 
-import "github.com/mit-dci/go-bverify/utils"
+import (
+	"fmt"
+
+	"github.com/mit-dci/go-bverify/utils"
+)
 
 // NodeType is an enum for the various types of nodes we know.
 // Used in serialization/deserialization
@@ -115,6 +119,9 @@ func GetNodeHeight(node Node) int {
 
 // NodeFromBytes will deserialize the proper node type from a byte slice
 func NodeFromBytes(b []byte) (Node, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("Need at least one byte in slice")
+	}
 	if b[0] == byte(NodeTypeStub) {
 		return NewStubFromBytes(b)
 	}
@@ -135,7 +142,7 @@ func NodeFromBytes(b []byte) (Node, error) {
 		return NewSetLeafNodeFromBytes(b)
 	}
 
-	return nil, nil
+	return nil, fmt.Errorf("Unknown leaf type %x", b[0])
 }
 
 // UpdateNodeFromBytes tries updating from the passed byte slice creating
@@ -151,7 +158,7 @@ func UpdateNodeFromBytes(n Node, b []byte) (Node, error) {
 // UpdateNode tries updating from the passed node creating
 // new nodes where it's not needed, preserving ones known in n and not in the update.
 func UpdateNode(n, n2 Node) (Node, error) {
-	var err error
+	//	var err error
 	in, ok := n2.(*InteriorNode)
 	if ok {
 		var left Node
@@ -161,16 +168,20 @@ func UpdateNode(n, n2 Node) (Node, error) {
 			right = n.GetRightChild()
 		}
 		if in.HasLeft() {
-			left, err = UpdateNode(left, in.GetLeftChild())
-			if err != nil {
+			left, _ = UpdateNode(left, in.GetLeftChild())
+			// Error handling only needed when there's actual errors possible
+			// Not now, maybe remove error return?
+			/*if err != nil {
 				return nil, err
-			}
+			}*/
 		}
 		if in.HasRight() {
-			right, err = UpdateNode(right, in.GetRightChild())
-			if err != nil {
+			right, _ = UpdateNode(right, in.GetRightChild())
+			// Error handling only needed when there's actual errors possible
+			// Not now, maybe remove error return?
+			/*if err != nil {
 				return nil, err
-			}
+			}*/
 		}
 		return NewInteriorNode(left, right)
 	}

@@ -2,6 +2,7 @@ package mpt
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/mit-dci/lit/crypto/fastsha256"
 	"github.com/mit-dci/lit/wire"
@@ -29,7 +30,7 @@ var _ Node = &InteriorNode{}
 
 // NewInteriorNode creates a new empty leaf node
 func NewInteriorNode(leftChild, rightChild Node) (*InteriorNode, error) {
-	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: true}, nil
+	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: true, hash: make([]byte, 32)}, nil
 }
 
 // GetHash is the implementation of Node.GetHash
@@ -42,6 +43,7 @@ func (i *InteriorNode) GetHash() []byte {
 		copy(commitment[len(leftChildHash):], rightChildHash[:])
 		hash := fastsha256.Sum256(commitment)
 		copy(i.hash[:], hash[:])
+		i.recalculateHash = false
 	}
 	return i.hash
 }
@@ -123,6 +125,7 @@ func (i *InteriorNode) MarkChangedAll() {
 	if !i.rightChild.Changed() {
 		i.rightChild.MarkChangedAll()
 	}
+	i.changed = true
 }
 
 // MarkUnchangedAll is the implementation of Node.MarkUnchangedAll
@@ -133,6 +136,7 @@ func (i *InteriorNode) MarkUnchangedAll() {
 	if i.rightChild.Changed() {
 		i.rightChild.MarkUnchangedAll()
 	}
+	i.changed = false
 }
 
 // CountHashesRequiredForGetHash is the implementation of Node.CountHashesRequiredForGetHash
@@ -170,13 +174,28 @@ func (i *InteriorNode) NonEmptyLeafNodesInSubtree() int {
 func (i *InteriorNode) Equals(n Node) bool {
 	i2, ok := n.(*InteriorNode)
 	if ok {
-		return i.leftChild.Equals(i2.leftChild) && i.rightChild.Equals(i2.rightChild)
+		if i.leftChild == nil && i2.leftChild != nil {
+			return false
+		}
+		if i.rightChild == nil && i2.rightChild != nil {
+			return false
+		}
+		if i.leftChild != nil && !i.leftChild.Equals(i2.leftChild) {
+			return false
+		}
+		if i.rightChild != nil && !i.rightChild.Equals(i2.rightChild) {
+			return false
+		}
+		return true
 	}
 	return false
 }
 
 // NewInteriorNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
 func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
+	if len(b) == 0 {
+		return nil, fmt.Errorf("Need at least one byte in slice")
+	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
 	left, err := wire.ReadVarBytes(buf, 0, 256, "key")
 	if err != nil {

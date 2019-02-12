@@ -152,6 +152,11 @@ func TestSetLeafNodeSerialize(t *testing.T) {
 		t.Error("Deserialized node did not equal input")
 	}
 
+	n, err = NewSetLeafNodeFromBytes([]byte{}) // Empty byte slice
+	if err == nil {
+		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
+	}
+
 	n, err = NewSetLeafNodeFromBytes([]byte{0xFF, 0xAB}) // Length for key, but no bytes with actual data
 	if err == nil {
 		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
