@@ -27,13 +27,16 @@ type ServerLogProcessor struct {
 }
 
 func NewLogProcessor(c net.Conn, srv *Server) LogProcessor {
-	return &ServerLogProcessor{conn: wire.NewConnection(c), server: srv, logIDs: make([][]byte, 0)}
+	proc := &ServerLogProcessor{conn: wire.NewConnection(c), server: srv, logIDs: make([][]byte, 0)}
+	srv.registerProcessor(proc)
+	return proc
 }
 
 func (lp *ServerLogProcessor) Process() {
 	for {
 		t, m, e := lp.conn.ReadNextMessage()
 		if e != nil {
+			lp.server.unregisterProcessor(lp)
 			lp.conn.Close()
 			return
 		}
@@ -41,6 +44,7 @@ func (lp *ServerLogProcessor) Process() {
 		e = lp.ProcessMessage(t, m)
 		if e != nil {
 			lp.conn.WriteMessage(wire.MessageTypeError, []byte(e.Error()))
+			lp.server.unregisterProcessor(lp)
 			lp.conn.Close()
 			return
 		}
@@ -87,13 +91,16 @@ func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStateme
 	hash := fastsha256.Sum256(scls.CreateStatement.Bytes())
 
 	err = lp.server.RegisterLogID(hash, scls.CreateStatement.ControllingKey)
-
-	witness := fastsha256.Sum256(scls.Bytes())
-
-	err = lp.server.RegisterLogStatement(hash, 0, witness[:])
 	if err != nil {
 		return err
 	}
+
+	witness := fastsha256.Sum256(scls.Bytes())
+
+	// The only possible error is a wrong index. Given we _just_ created the log,
+	// which should error out on already existing, the 0 index is always correct.
+	// Therefore, it's safe to ignore this.
+	_ = lp.server.RegisterLogStatement(hash, 0, witness[:])
 
 	lp.SubscribeToLog(hash)
 	lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})

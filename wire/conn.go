@@ -26,7 +26,7 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	bLen := make([]byte, 2)
 	n, err := io.ReadFull(c.conn, bType)
 	if n != 1 {
-		return 0x00, nil, fmt.Errorf("Wrong length read : expected 1, got %d", n)
+		return 0x00, nil, fmt.Errorf("Wrong length read for type : expected 1, got %d", n)
 	}
 	if err != nil {
 		return 0x00, nil, err
@@ -34,7 +34,7 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 
 	n, err = io.ReadFull(c.conn, bLen)
 	if n != 2 {
-		return 0x00, nil, fmt.Errorf("Wrong length read : expected 2, got %d", n)
+		return 0x00, nil, fmt.Errorf("Wrong length read for length : expected 2, got %d", n)
 	}
 	if err != nil {
 		return 0x00, nil, err
@@ -45,7 +45,7 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	if l > 0 {
 		n, err = io.ReadFull(c.conn, bMsg)
 		if n != int(l) {
-			return 0x00, nil, fmt.Errorf("Wrong length read : expected %d, got %d", l, n)
+			return 0x00, nil, fmt.Errorf("Wrong length read for body : expected %d, got %d", l, n)
 		}
 		if err != nil {
 			return 0x00, nil, err

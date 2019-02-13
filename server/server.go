@@ -33,7 +33,8 @@ type Server struct {
 	addr string
 
 	// Processing threads
-	processors []LogProcessor
+	processors     []LogProcessor
+	processorsLock sync.Mutex
 
 	// channel to stop
 	stop  chan bool
@@ -62,6 +63,8 @@ func NewServer(addr string) (*Server, error) {
 	srv.logIDLock = sync.RWMutex{}
 
 	srv.processors = make([]LogProcessor, 0)
+	srv.processorsLock = sync.Mutex{}
+
 	srv.stop = make(chan bool, 1)
 	srv.ready = make(chan bool, 0)
 
@@ -150,11 +153,30 @@ func (srv *Server) Run() error {
 			}
 		}
 		proc := NewLogProcessor(conn, srv)
-		srv.processors = append(srv.processors, proc)
 		go proc.Process()
 	}
 
 	return nil
+}
+
+func (srv *Server) registerProcessor(p LogProcessor) {
+	srv.processorsLock.Lock()
+	srv.processors = append(srv.processors, p)
+	srv.processorsLock.Unlock()
+}
+
+func (srv *Server) unregisterProcessor(p LogProcessor) {
+	srv.processorsLock.Lock()
+	removeIdx := -1
+	for i, pp := range srv.processors {
+		if pp == p {
+			removeIdx = i
+		}
+	}
+	if removeIdx != -1 {
+		srv.processors = append(srv.processors[:removeIdx], srv.processors[removeIdx+1:]...)
+	}
+	srv.processorsLock.Unlock()
 }
 
 func (srv *Server) Stop() {
@@ -171,9 +193,11 @@ func (srv *Server) Commit() error {
 	}
 	copy(srv.lastCommitment[:], commitment[:])
 	delta, _ := mpt.NewDeltaMPT(srv.fullmpt)
+	srv.processorsLock.Lock()
 	for _, pr := range srv.processors {
 		pr.SendProofs(delta)
 	}
+	srv.processorsLock.Unlock()
 
 	srv.fullmpt.Reset()
 	return nil
