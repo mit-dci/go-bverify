@@ -6,7 +6,7 @@ import (
 
 	"github.com/mit-dci/go-bverify/crypto"
 	"github.com/mit-dci/go-bverify/utils"
-	"github.com/mit-dci/lit/wire"
+	"github.com/mit-dci/go-bverify/wire"
 )
 
 // DictionaryLeafNode represents a leaf node in a Merkle Prefix Trie
@@ -153,14 +153,14 @@ func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
 		return nil, fmt.Errorf("Need at least 1 byte")
 	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	key, err := wire.ReadVarBytes(buf, 0, 256, "key")
+	key, err := wire.ReadVarBytes(buf, 256, "key")
 	if err != nil {
 		return nil, err
 	}
 	if len(key) == 0 {
 		return nil, fmt.Errorf("Key should be at least 1 byte")
 	}
-	value, err := wire.ReadVarBytes(buf, 0, 256, "value")
+	value, err := wire.ReadVarBytes(buf, 256, "value")
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
 func (dln *DictionaryLeafNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeDictionaryLeaf))
-	wire.WriteVarBytes(&buf, 0, dln.key)
-	wire.WriteVarBytes(&buf, 0, dln.value)
+	wire.WriteVarBytes(&buf, dln.key)
+	wire.WriteVarBytes(&buf, dln.value)
 	return buf.Bytes()
 }

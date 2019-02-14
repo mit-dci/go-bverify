@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/mit-dci/lit/crypto/fastsha256"
-	"github.com/mit-dci/lit/wire"
+	"github.com/mit-dci/go-bverify/crypto/fastsha256"
+	"github.com/mit-dci/go-bverify/wire"
 )
 
 // InteriorNode represents an interior node in the MPT. An interior node has
@@ -197,11 +197,11 @@ func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
 		return nil, fmt.Errorf("Need at least one byte in slice")
 	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	left, err := wire.ReadVarBytes(buf, 0, 256, "key")
+	left, err := wire.ReadVarBytes(buf, 256, "key")
 	if err != nil {
 		return nil, err
 	}
-	right, err := wire.ReadVarBytes(buf, 0, 256, "key")
+	right, err := wire.ReadVarBytes(buf, 256, "key")
 	if err != nil {
 		return nil, err
 	}
@@ -226,14 +226,14 @@ func (i *InteriorNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeInterior))
 	if i.leftChild != nil {
-		wire.WriteVarBytes(&buf, 0, i.leftChild.Bytes())
+		wire.WriteVarBytes(&buf, i.leftChild.Bytes())
 	} else {
-		wire.WriteVarBytes(&buf, 0, []byte{})
+		wire.WriteVarBytes(&buf, []byte{})
 	}
 	if i.rightChild != nil {
-		wire.WriteVarBytes(&buf, 0, i.rightChild.Bytes())
+		wire.WriteVarBytes(&buf, i.rightChild.Bytes())
 	} else {
-		wire.WriteVarBytes(&buf, 0, []byte{})
+		wire.WriteVarBytes(&buf, []byte{})
 	}
 	return buf.Bytes()
 }

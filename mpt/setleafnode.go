@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mit-dci/go-bverify/utils"
-	"github.com/mit-dci/lit/wire"
+	"github.com/mit-dci/go-bverify/wire"
 )
 
 // SetLeafNode represents a leaf node in a Merkle Prefix Trie
@@ -138,7 +138,7 @@ func NewSetLeafNodeFromBytes(b []byte) (*SetLeafNode, error) {
 		return nil, fmt.Errorf("Passed byte slice should be more than 0 bytes")
 	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	value, err := wire.ReadVarBytes(buf, 0, 256, "value")
+	value, err := wire.ReadVarBytes(buf, 256, "value")
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +152,6 @@ func NewSetLeafNodeFromBytes(b []byte) (*SetLeafNode, error) {
 func (sln *SetLeafNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeSetLeaf))
-	wire.WriteVarBytes(&buf, 0, sln.value)
+	wire.WriteVarBytes(&buf, sln.value)
 	return buf.Bytes()
 }

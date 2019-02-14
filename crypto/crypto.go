@@ -1,6 +1,6 @@
 package crypto
 
-import "github.com/mit-dci/lit/crypto/fastsha256"
+import "github.com/mit-dci/go-bverify/crypto/fastsha256"
 
 // WitnessKeyAndValue commits to a key and a value using the following commitment:
 // H(key||value)

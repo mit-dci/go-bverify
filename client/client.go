@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/mit-dci/lit/sig64"
+	"github.com/mit-dci/go-bverify/crypto/sig64"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 
-	"github.com/mit-dci/zksigma/btcec"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
 
 	"github.com/mit-dci/go-bverify/wire"
 )

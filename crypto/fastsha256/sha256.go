@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package fastsha256 implements the SHA224 and SHA256 hash algorithms as defined
+// Package fastsha256 implements the SHA256 hash algorithms as defined
 // in FIPS 180-4.
 package fastsha256
 
@@ -12,68 +12,45 @@ import (
 )
 
 func init() {
-	crypto.RegisterHash(crypto.SHA224, New224)
 	crypto.RegisterHash(crypto.SHA256, New)
 }
 
 // The size of a SHA256 checksum in bytes.
 const Size = 32
 
-// The size of a SHA224 checksum in bytes.
-const Size224 = 28
-
 // The blocksize of SHA256 and SHA224 in bytes.
 const BlockSize = 64
 
 const (
-	chunk     = 64
-	init0     = 0x6A09E667
-	init1     = 0xBB67AE85
-	init2     = 0x3C6EF372
-	init3     = 0xA54FF53A
-	init4     = 0x510E527F
-	init5     = 0x9B05688C
-	init6     = 0x1F83D9AB
-	init7     = 0x5BE0CD19
-	init0_224 = 0xC1059ED8
-	init1_224 = 0x367CD507
-	init2_224 = 0x3070DD17
-	init3_224 = 0xF70E5939
-	init4_224 = 0xFFC00B31
-	init5_224 = 0x68581511
-	init6_224 = 0x64F98FA7
-	init7_224 = 0xBEFA4FA4
+	chunk = 64
+	init0 = 0x6A09E667
+	init1 = 0xBB67AE85
+	init2 = 0x3C6EF372
+	init3 = 0xA54FF53A
+	init4 = 0x510E527F
+	init5 = 0x9B05688C
+	init6 = 0x1F83D9AB
+	init7 = 0x5BE0CD19
 )
 
 // digest represents the partial evaluation of a checksum.
 type digest struct {
-	h     [8]uint32
-	x     [chunk]byte
-	nx    int
-	len   uint64
-	is224 bool // mark if this digest is SHA-224
+	h   [8]uint32
+	x   [chunk]byte
+	nx  int
+	len uint64
 }
 
 func (d *digest) Reset() {
-	if !d.is224 {
-		d.h[0] = init0
-		d.h[1] = init1
-		d.h[2] = init2
-		d.h[3] = init3
-		d.h[4] = init4
-		d.h[5] = init5
-		d.h[6] = init6
-		d.h[7] = init7
-	} else {
-		d.h[0] = init0_224
-		d.h[1] = init1_224
-		d.h[2] = init2_224
-		d.h[3] = init3_224
-		d.h[4] = init4_224
-		d.h[5] = init5_224
-		d.h[6] = init6_224
-		d.h[7] = init7_224
-	}
+	d.h[0] = init0
+	d.h[1] = init1
+	d.h[2] = init2
+	d.h[3] = init3
+	d.h[4] = init4
+	d.h[5] = init5
+	d.h[6] = init6
+	d.h[7] = init7
+
 	d.nx = 0
 	d.len = 0
 }
@@ -85,19 +62,8 @@ func New() hash.Hash {
 	return d
 }
 
-// New224 returns a new hash.Hash computing the SHA224 checksum.
-func New224() hash.Hash {
-	d := new(digest)
-	d.is224 = true
-	d.Reset()
-	return d
-}
-
 func (d *digest) Size() int {
-	if !d.is224 {
-		return Size
-	}
-	return Size224
+	return Size
 }
 
 func (d *digest) BlockSize() int { return BlockSize }
@@ -129,9 +95,6 @@ func (d *digest) Sum(in []byte) []byte {
 	// Make a copy of d so that caller can keep writing and summing.
 	d0 := *d
 	hash := d0.checkSum()
-	if d0.is224 {
-		return append(in, hash[:Size224]...)
-	}
 	return append(in, hash[:]...)
 }
 
@@ -158,9 +121,6 @@ func (d *digest) checkSum() [Size]byte {
 	}
 
 	h := d.h[:]
-	if d.is224 {
-		h = d.h[:7]
-	}
 
 	var digest [Size]byte
 	for i, s := range h {
@@ -179,17 +139,6 @@ func Sum256(data []byte) [Size]byte {
 	d.Reset()
 	d.Write(data)
 	return d.checkSum()
-}
-
-// Sum224 returns the SHA224 checksum of the data.
-func Sum224(data []byte) (sum224 [Size224]byte) {
-	var d digest
-	d.is224 = true
-	d.Reset()
-	d.Write(data)
-	sum := d.checkSum()
-	copy(sum224[:], sum[:Size224])
-	return
 }
 
 // MidState256 returns the internal hashing state after hashing the first chunk
