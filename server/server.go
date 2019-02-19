@@ -12,17 +12,17 @@ import (
 
 type Server struct {
 	// Tracks the pubkeys for LogIDs
-	logIDToPubKey map[[32]byte][33]byte
-	// Lock for R/W of logIDToPubKey
-	logIDLock sync.RWMutex
+	logIDToPubKey sync.Map
 
 	// Tracks the last log index per log
-	logIDIndex map[[32]byte]uint64
-	// Lock for R/W of logIDIndex
-	logIDIndexLock sync.RWMutex
+	logIDIndex sync.Map
 
 	// The full MPT tracking all client logs
 	fullmpt *mpt.FullMPT
+
+	// The last state of the MPT when we last committed
+	LastCommitMpt *mpt.FullMPT
+
 	// Lock guarding the MPT
 	mptLock sync.Mutex
 
@@ -41,10 +41,13 @@ type Server struct {
 	ready chan bool
 
 	listener *net.TCPListener
+
+	AutoCommit bool
 }
 
 func NewServer(addr string) (*Server, error) {
 	srv := new(Server)
+	srv.AutoCommit = true
 	srv.addr = addr
 
 	if srv.addr == "" {
@@ -56,12 +59,6 @@ func NewServer(addr string) (*Server, error) {
 
 	srv.lastCommitment = [32]byte{}
 
-	srv.logIDToPubKey = map[[32]byte][33]byte{}
-	srv.logIDIndex = map[[32]byte]uint64{}
-
-	srv.logIDIndexLock = sync.RWMutex{}
-	srv.logIDLock = sync.RWMutex{}
-
 	srv.processors = make([]LogProcessor, 0)
 	srv.processorsLock = sync.Mutex{}
 
@@ -72,45 +69,30 @@ func NewServer(addr string) (*Server, error) {
 }
 
 func (srv *Server) RegisterLogID(logID [32]byte, controllingKey [33]byte) error {
-	srv.logIDLock.RLock()
-	_, ok := srv.logIDToPubKey[logID]
-	srv.logIDLock.RUnlock()
+	_, ok := srv.logIDToPubKey.Load(logID)
 	if ok {
 		return fmt.Errorf("Duplicate log ID created: [%x]", logID)
 	}
-	srv.logIDLock.Lock()
-	insert := [33]byte{}
-	copy(insert[:], controllingKey[:])
-	srv.logIDToPubKey[logID] = insert
-	srv.logIDLock.Unlock()
+	srv.logIDToPubKey.Store(logID, controllingKey)
 	return nil
 }
 
 func (srv *Server) GetPubKeyForLogID(logID [32]byte) ([33]byte, error) {
-	srv.logIDLock.RLock()
-	pk, ok := srv.logIDToPubKey[logID]
-	srv.logIDLock.RUnlock()
+	pk, ok := srv.logIDToPubKey.Load(logID)
 	if !ok {
 		return [33]byte{}, fmt.Errorf("LogID not found")
 	}
-	// return a copy
-	returnKey := [33]byte{}
-	copy(returnKey[:], pk[:])
-	return returnKey, nil
+	return pk.([33]byte), nil
 }
 
 func (srv *Server) RegisterLogStatement(logID [32]byte, index uint64, statement []byte) error {
-	srv.logIDIndexLock.RLock()
-	idx, ok := srv.logIDIndex[logID]
-	srv.logIDIndexLock.RUnlock()
+	idx, ok := srv.logIDIndex.Load(logID)
 	if !ok && index != uint64(0) {
 		return fmt.Errorf("Unexpected log index %d - expected 0", index)
-	} else if ok && index != idx+1 {
-		return fmt.Errorf("Unexpected log index %d - expected %d", index, idx+1)
+	} else if ok && index != (idx.(uint64))+1 {
+		return fmt.Errorf("Unexpected log index %d - expected %d", index, (idx.(uint64))+1)
 	}
-	srv.logIDIndexLock.Lock()
-	srv.logIDIndex[logID] = index
-	srv.logIDIndexLock.Unlock()
+	srv.logIDIndex.Store(logID, index)
 
 	srv.mptLock.Lock()
 	srv.fullmpt.Insert(logID[:], statement)
@@ -133,7 +115,9 @@ func (srv *Server) Run() error {
 	commitTicker := time.NewTicker(time.Second * 5)
 	go func(s *Server) {
 		for range commitTicker.C {
-			s.Commit()
+			if s.AutoCommit {
+				s.Commit()
+			}
 		}
 	}(srv)
 
@@ -189,16 +173,29 @@ func (srv *Server) Commit() error {
 	defer srv.mptLock.Unlock()
 	commitment := srv.fullmpt.Commitment()
 	if bytes.Equal(srv.lastCommitment[:], commitment[:]) {
+		commitment = nil
 		return nil
 	}
-	copy(srv.lastCommitment[:], commitment[:])
 	delta, _ := mpt.NewDeltaMPT(srv.fullmpt)
 	srv.processorsLock.Lock()
+	var wg sync.WaitGroup
 	for _, pr := range srv.processors {
-		pr.SendProofs(delta)
+		wg.Add(1)
+		go func(proc LogProcessor) {
+			proc.SendProofs(delta)
+			wg.Done()
+		}(pr)
 	}
+	wg.Wait()
+
 	srv.processorsLock.Unlock()
 
 	srv.fullmpt.Reset()
+	copy(srv.lastCommitment[:], commitment[:])
+	commitment = nil
 	return nil
+}
+
+func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
+	return mpt.NewPartialMPTIncludingKeys(srv.fullmpt, keys)
 }

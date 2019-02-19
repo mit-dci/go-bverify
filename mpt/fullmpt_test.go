@@ -139,6 +139,7 @@ func TestFullMptSerialize(t *testing.T) {
 	mpt2, err := NewFullMPTFromBytes(b)
 	if err != nil {
 		t.Error(err.Error())
+		return
 	}
 
 	if mpt2.Size() != mpt.Size() {

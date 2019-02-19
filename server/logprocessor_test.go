@@ -8,7 +8,7 @@ import (
 
 	"crypto/rand"
 
-	"github.com/mit-dci/go-bverify/btcec"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 	"github.com/mit-dci/go-bverify/crypto/sig64"
 	"github.com/mit-dci/go-bverify/mpt"

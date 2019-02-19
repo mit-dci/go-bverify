@@ -2,10 +2,10 @@ package mpt
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
-	"github.com/mit-dci/go-bverify/wire"
 )
 
 // InteriorNode represents an interior node in the MPT. An interior node has
@@ -25,7 +25,7 @@ type InteriorNode struct {
 	rightChild      Node
 }
 
-// Compile time check if DictionaryLeafNode implements Node properly
+// Compile time check if InteriorNode implements Node properly
 var _ Node = &InteriorNode{}
 
 // NewInteriorNode creates a new empty leaf node
@@ -36,13 +36,15 @@ func NewInteriorNode(leftChild, rightChild Node) (*InteriorNode, error) {
 // GetHash is the implementation of Node.GetHash
 func (i *InteriorNode) GetHash() []byte {
 	if i.recalculateHash {
-		leftChildHash := i.leftChild.GetHash()
-		rightChildHash := i.rightChild.GetHash()
-		commitment := make([]byte, len(leftChildHash)+len(rightChildHash))
-		copy(commitment[:], leftChildHash[:])
-		copy(commitment[len(leftChildHash):], rightChildHash[:])
-		hash := fastsha256.Sum256(commitment)
-		copy(i.hash[:], hash[:])
+		hasher := fastsha256.New()
+		if i.leftChild != nil {
+			hasher.Write(i.leftChild.GetHash())
+		}
+		if i.rightChild != nil {
+			hasher.Write(i.rightChild.GetHash())
+		}
+		i.hash = hasher.Sum(nil)
+		hasher = nil
 		i.recalculateHash = false
 	}
 	return i.hash
@@ -152,22 +154,50 @@ func (i *InteriorNode) CountHashesRequiredForGetHash() int {
 
 // NodesInSubtree is the implementation of Node.NodesInSubtree
 func (i *InteriorNode) NodesInSubtree() int {
-	return 1 + i.rightChild.NodesInSubtree() + i.leftChild.NodesInSubtree()
+	total := 1
+	if i.leftChild != nil {
+		total += i.leftChild.NodesInSubtree()
+	}
+	if i.rightChild != nil {
+		total += i.rightChild.NodesInSubtree()
+	}
+	return total
 }
 
 // InteriorNodesInSubtree is the implementation of Node.InteriorNodesInSubtree
 func (i *InteriorNode) InteriorNodesInSubtree() int {
-	return 1 + i.rightChild.InteriorNodesInSubtree() + i.leftChild.InteriorNodesInSubtree()
+	total := 1
+	if i.leftChild != nil {
+		total += i.leftChild.InteriorNodesInSubtree()
+	}
+	if i.rightChild != nil {
+		total += i.rightChild.InteriorNodesInSubtree()
+	}
+	return total
 }
 
 // EmptyLeafNodesInSubtree is the implementation of Node.EmptyLeafNodesInSubtree
 func (i *InteriorNode) EmptyLeafNodesInSubtree() int {
-	return i.rightChild.EmptyLeafNodesInSubtree() + i.leftChild.EmptyLeafNodesInSubtree()
+	total := 0
+	if i.leftChild != nil {
+		total += i.leftChild.EmptyLeafNodesInSubtree()
+	}
+	if i.rightChild != nil {
+		total += i.rightChild.EmptyLeafNodesInSubtree()
+	}
+	return total
 }
 
 // NonEmptyLeafNodesInSubtree is the implementation of Node.NonEmptyLeafNodesInSubtree
 func (i *InteriorNode) NonEmptyLeafNodesInSubtree() int {
-	return i.rightChild.NonEmptyLeafNodesInSubtree() + i.leftChild.NonEmptyLeafNodesInSubtree()
+	total := 0
+	if i.leftChild != nil {
+		total += i.leftChild.NonEmptyLeafNodesInSubtree()
+	}
+	if i.rightChild != nil {
+		total += i.rightChild.NonEmptyLeafNodesInSubtree()
+	}
+	return total
 }
 
 // Equals is the implementation of Node.Equals
@@ -191,34 +221,56 @@ func (i *InteriorNode) Equals(n Node) bool {
 	return false
 }
 
-// NewInteriorNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
+// NewInteriorNodeFromBytes deserializes the passed byteslice into a InteriorNode
 func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
+	var err error
 	if len(b) == 0 {
 		return nil, fmt.Errorf("Need at least one byte in slice")
 	}
 	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	left, err := wire.ReadVarBytes(buf, 256, "key")
-	if err != nil {
-		return nil, err
-	}
-	right, err := wire.ReadVarBytes(buf, 256, "key")
-	if err != nil {
-		return nil, err
-	}
+
 	var leftNode, rightNode Node
-	if len(left) > 0 {
-		leftNode, err = NodeFromBytes(left)
+	iLen := int32(0)
+	err = binary.Read(buf, binary.BigEndian, &iLen)
+	if err != nil {
+		return nil, err
+	}
+	if iLen > 0 {
+		if buf.Len() < int(iLen) {
+			return nil, fmt.Errorf("Specified length of left node not present in buffer")
+		}
+		leftNode, err = NodeFromBytes(buf.Next(int(iLen)))
 		if err != nil {
 			return nil, err
 		}
 	}
-	if len(right) > 0 {
-		rightNode, err = NodeFromBytes(right)
+	err = binary.Read(buf, binary.BigEndian, &iLen)
+	if err != nil {
+		return nil, err
+	}
+	if iLen > 0 {
+		if buf.Len() < int(iLen) {
+			return nil, fmt.Errorf("Specified length of right node not present in buffer")
+		}
+		rightNode, err = NodeFromBytes(buf.Next(int(iLen)))
 		if err != nil {
 			return nil, err
 		}
 	}
+
 	return NewInteriorNode(leftNode, rightNode)
+}
+
+func (i *InteriorNode) ByteSize() int {
+	// 1 (Type) + 4 (leftChild size) + leftChild size + 4 (rightChild size) + rightChildSize
+	size := 9
+	if i.leftChild != nil {
+		size += i.leftChild.ByteSize()
+	}
+	if i.rightChild != nil {
+		size += i.rightChild.ByteSize()
+	}
+	return size
 }
 
 // Bytes is the implementation of Node.Bytes
@@ -226,14 +278,17 @@ func (i *InteriorNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeInterior))
 	if i.leftChild != nil {
-		wire.WriteVarBytes(&buf, i.leftChild.Bytes())
+		binary.Write(&buf, binary.BigEndian, int32(i.leftChild.ByteSize()))
+		buf.Write(i.leftChild.Bytes())
 	} else {
-		wire.WriteVarBytes(&buf, []byte{})
+		binary.Write(&buf, binary.BigEndian, int32(0))
 	}
+
 	if i.rightChild != nil {
-		wire.WriteVarBytes(&buf, i.rightChild.Bytes())
+		binary.Write(&buf, binary.BigEndian, int32(i.rightChild.ByteSize()))
+		buf.Write(i.rightChild.Bytes())
 	} else {
-		wire.WriteVarBytes(&buf, []byte{})
+		binary.Write(&buf, binary.BigEndian, int32(0))
 	}
 	return buf.Bytes()
 }

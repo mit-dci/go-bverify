@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 )
 
 func TestRegisterGetLogKey(t *testing.T) {
+	fmt.Printf("TestRegisterGetLogKeys...")
 	srv, err := NewServer("")
 	if err != nil {
 		t.Error(err)
@@ -57,6 +59,7 @@ func TestRegisterGetLogKey(t *testing.T) {
 }
 
 func TestLogAndCommit(t *testing.T) {
+	fmt.Printf("TestLogAndCommit\n")
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -66,6 +69,7 @@ func TestLogAndCommit(t *testing.T) {
 		return
 	}
 
+	fmt.Printf("Registering logs...\n")
 	// Register 100 logs
 	logId := [32]byte{}
 	pubKey := [33]byte{}
@@ -138,6 +142,7 @@ func TestLogAndCommit(t *testing.T) {
 }
 
 func TestServerConnectivity(t *testing.T) {
+	fmt.Printf("TestServerConnectivity")
 	// Use weird port for test, not the actual
 	// runtime default one
 	srv, err := NewServer(":56199")

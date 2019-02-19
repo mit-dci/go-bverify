@@ -74,6 +74,20 @@ func (mr *MockLogProcessorMockRecorder) ProcessMessage(t, m interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessMessage", reflect.TypeOf((*MockLogProcessor)(nil).ProcessMessage), t, m)
 }
 
+// ProcessRequestProof mocks base method
+func (m *MockLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProcessRequestProof", msg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProcessRequestProof indicates an expected call of ProcessRequestProof
+func (mr *MockLogProcessorMockRecorder) ProcessRequestProof(msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessRequestProof", reflect.TypeOf((*MockLogProcessor)(nil).ProcessRequestProof), msg)
+}
+
 // ProcessCreateLog mocks base method
 func (m *MockLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {
 	m.ctrl.T.Helper()

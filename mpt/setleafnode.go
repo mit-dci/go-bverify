@@ -3,9 +3,6 @@ package mpt
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/mit-dci/go-bverify/utils"
-	"github.com/mit-dci/go-bverify/wire"
 )
 
 // SetLeafNode represents a leaf node in a Merkle Prefix Trie
@@ -16,7 +13,6 @@ import (
 type SetLeafNode struct {
 	value           []byte
 	changed         bool
-	commitmentHash  []byte
 	recalculateHash bool
 }
 
@@ -30,7 +26,7 @@ func NewSetLeafNode(value []byte) (*SetLeafNode, error) {
 
 // GetHash is the implementation of Node.GetHash
 func (sln *SetLeafNode) GetHash() []byte {
-	return utils.CloneByteSlice(sln.value)
+	return sln.value
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -60,12 +56,12 @@ func (sln *SetLeafNode) SetValue(value []byte) {
 
 // GetValue is the implementation of Node.GetValue
 func (sln *SetLeafNode) GetValue() []byte {
-	return utils.CloneByteSlice(sln.value)
+	return sln.value
 }
 
 // GetKey is the implementation of Node.GetKey
 func (sln *SetLeafNode) GetKey() []byte {
-	return utils.CloneByteSlice(sln.value)
+	return sln.value
 }
 
 // IsEmpty is the implementation of Node.IsEmpty
@@ -137,21 +133,17 @@ func NewSetLeafNodeFromBytes(b []byte) (*SetLeafNode, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("Passed byte slice should be more than 0 bytes")
 	}
-	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	value, err := wire.ReadVarBytes(buf, 256, "value")
-	if err != nil {
-		return nil, err
-	}
-	if len(value) == 0 {
-		return nil, fmt.Errorf("Value should be more than 0 bytes")
-	}
-	return NewSetLeafNode(value)
+	return NewSetLeafNode(b[1:]) // Lob off type byte
 }
 
 // Bytes is the implementation of Node.Bytes
 func (sln *SetLeafNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeSetLeaf))
-	wire.WriteVarBytes(&buf, sln.value)
+	buf.Write(sln.value)
 	return buf.Bytes()
+}
+
+func (sln *SetLeafNode) ByteSize() int {
+	return 1 + len(sln.value)
 }

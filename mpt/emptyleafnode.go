@@ -10,6 +10,7 @@ import (
 //
 type EmptyLeafNode struct {
 	changed bool
+	hash    []byte
 }
 
 // Compile time check if DictionaryLeafNode implements Node properly
@@ -17,12 +18,12 @@ var _ Node = &EmptyLeafNode{}
 
 // NewEmptyLeafNode creates a new empty leaf node
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
-	return &EmptyLeafNode{changed: true}, nil
+	return &EmptyLeafNode{changed: true, hash: make([]byte, 32)}, nil
 }
 
 // GetHash is the implementation of Node.GetHash
 func (eln *EmptyLeafNode) GetHash() []byte {
-	return make([]byte, 32)
+	return eln.hash
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -119,6 +120,10 @@ func (eln *EmptyLeafNode) NonEmptyLeafNodesInSubtree() int {
 func (eln *EmptyLeafNode) Equals(n Node) bool {
 	_, ok := n.(*EmptyLeafNode)
 	return ok
+}
+
+func (eln *EmptyLeafNode) ByteSize() int {
+	return 1
 }
 
 // NewEmptyLeafNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode

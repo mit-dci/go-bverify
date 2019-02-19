@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/mit-dci/go-bverify/mpt"
+
 	"github.com/mit-dci/go-bverify/crypto/sig64"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
@@ -14,10 +16,23 @@ import (
 )
 
 type Client struct {
-	conn   *wire.Connection
-	key    *btcec.PrivateKey
-	ack    chan bool
-	pubKey [33]byte
+	conn          *wire.Connection
+	key           *btcec.PrivateKey
+	ack           chan bool
+	proof         chan *mpt.PartialMPT
+	pubKey        [33]byte
+	OnError       func(error)
+	OnProofUpdate func([]byte)
+}
+
+func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
+	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), key)
+	var pk [33]byte
+	copy(pk[:], pub.SerializeCompressed())
+
+	cli := &Client{conn: wire.NewConnection(c), key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
+	go cli.ReceiveLoop()
+	return cli, nil
 }
 
 func NewClient(key []byte) (*Client, error) {
@@ -25,14 +40,8 @@ func NewClient(key []byte) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), key)
-	var pk [33]byte
-	copy(pk[:], pub.SerializeCompressed())
 
-	cli := &Client{conn: wire.NewConnection(c), key: priv, pubKey: pk, ack: make(chan bool, 1)}
-	go cli.ReceiveLoop()
-
-	return cli, nil
+	return NewClientWithConnection(key, c)
 }
 
 func (c *Client) ReceiveLoop() {
@@ -45,15 +54,31 @@ func (c *Client) ReceiveLoop() {
 
 		if t == wire.MessageTypeAck {
 			c.ack <- true
+			continue
 		}
 
 		if t == wire.MessageTypeError {
-			fmt.Printf("Received error: %s\n", string(p))
+			if c.OnError != nil {
+				go c.OnError(fmt.Errorf("%s", string(p)))
+			}
 			return
 		}
 
 		if t == wire.MessageTypeProofUpdate {
-			fmt.Printf("Received proof update: [%x]\n", p)
+			if c.OnProofUpdate != nil {
+				go c.OnProofUpdate(p)
+			}
+			continue
+		}
+
+		if t == wire.MessageTypeProof {
+			mpt, err := mpt.NewPartialMPTFromBytes(p)
+			if err != nil {
+				c.conn.Close()
+				return
+			}
+			c.proof <- mpt
+			continue
 		}
 	}
 }
@@ -83,6 +108,37 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 
 	return hash, nil
 
+}
+
+func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
+	msg := wire.NewRequestProofMessage(logIds)
+	err := c.conn.WriteMessage(wire.MessageTypeRequestProof, msg.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	proof := <-c.proof
+	return proof, nil
+}
+
+func (c *Client) SubscribeProofUpdates() error {
+	err := c.conn.WriteMessage(wire.MessageTypeSubscribeProofUpdates, []byte{})
+	if err != nil {
+		return err
+	}
+	<-c.ack
+
+	return nil
+}
+
+func (c *Client) UnsubscribeProofUpdates() error {
+	err := c.conn.WriteMessage(wire.MessageTypeUnsubscribeProofUpdates, []byte{})
+	if err != nil {
+		return err
+	}
+	<-c.ack
+
+	return nil
 }
 
 func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {

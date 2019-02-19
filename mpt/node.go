@@ -87,6 +87,9 @@ type Node interface {
 	// Bytes returns a serialized representation of this node
 	Bytes() []byte
 
+	// ByteSize returns the length of Bytes() without actually serializing first
+	ByteSize() int
+
 	// NodesInSubtree returns the number of nodes of any kind in the subtree rooted
 	// at this node (includes this node).
 	NodesInSubtree() int

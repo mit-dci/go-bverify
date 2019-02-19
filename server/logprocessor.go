@@ -16,14 +16,16 @@ type LogProcessor interface {
 	Process()
 	SendProofs(delta *mpt.DeltaMPT) error
 	ProcessMessage(t wire.MessageType, m []byte) error
+	ProcessRequestProof(msg *wire.RequestProofMessage) error
 	ProcessCreateLog(scls *wire.SignedCreateLogStatement) error
 	ProcessAppendLog(sls *wire.SignedLogStatement) error
 }
 
 type ServerLogProcessor struct {
-	conn   *wire.Connection
-	logIDs [][]byte
-	server *Server
+	conn        *wire.Connection
+	logIDs      [][]byte
+	server      *Server
+	autoUpdates bool
 }
 
 func NewLogProcessor(c net.Conn, srv *Server) LogProcessor {
@@ -52,15 +54,19 @@ func (lp *ServerLogProcessor) Process() {
 }
 
 func (lp *ServerLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
-	if len(lp.logIDs) > 0 {
+	if lp.autoUpdates && len(lp.logIDs) > 0 {
 		clientDelta, err := delta.GetUpdatesForKeys(lp.logIDs)
 		if err != nil {
 			return err
 		}
-		lp.conn.WriteMessage(wire.MessageTypeProofUpdate, clientDelta.Bytes())
+		err = lp.conn.WriteMessage(wire.MessageTypeProofUpdate, clientDelta.Bytes())
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
+
 func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error {
 	if t == wire.MessageTypeCreateLog {
 		pm, err := wire.NewSignedCreateLogStatementFromBytes(m)
@@ -78,7 +84,40 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 		return lp.ProcessAppendLog(pm)
 	}
 
+	if t == wire.MessageTypeRequestProof {
+		pm, err := wire.NewRequestProofMessageFromBytes(m)
+		if err != nil {
+			return err
+		}
+		return lp.ProcessRequestProof(pm)
+	}
+
+	if t == wire.MessageTypeSubscribeProofUpdates {
+		lp.autoUpdates = true
+		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
+	}
+
+	if t == wire.MessageTypeUnsubscribeProofUpdates {
+		lp.autoUpdates = false
+		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
+	}
+
 	return fmt.Errorf("Unrecognized message type received")
+}
+
+func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage) error {
+	keys := make([][]byte, len(msg.LogIDs))
+	for i, key32 := range msg.LogIDs {
+		keys[i] = make([]byte, 32)
+		copy(keys[i], key32[:])
+	}
+	proof, err := mpt.NewPartialMPTIncludingKeys(lp.server.LastCommitMpt, keys)
+	if err != nil {
+		return err
+	}
+	lp.conn.WriteMessage(wire.MessageTypeProof, proof.Bytes())
+	return nil
+
 }
 
 func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {

@@ -156,21 +156,6 @@ func TestSetLeafNodeSerialize(t *testing.T) {
 	if err == nil {
 		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
 	}
-
-	n, err = NewSetLeafNodeFromBytes([]byte{0xFF, 0xAB}) // Length for key, but no bytes with actual data
-	if err == nil {
-		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
-	}
-
-	n, err = NewSetLeafNodeFromBytes([]byte{0xFF}) // No data for key nor value
-	if err == nil {
-		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
-	}
-
-	n, err = NewSetLeafNodeFromBytes([]byte{0xFF, 0x00}) // zero-length key
-	if err == nil {
-		t.Error("NodeFromBytes with invalid data should have returned an error, but did not")
-	}
 }
 
 func TestSetLeafNodeCounts(t *testing.T) {

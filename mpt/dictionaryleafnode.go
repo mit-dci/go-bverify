@@ -2,11 +2,10 @@ package mpt
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/mit-dci/go-bverify/crypto"
-	"github.com/mit-dci/go-bverify/utils"
-	"github.com/mit-dci/go-bverify/wire"
 )
 
 // DictionaryLeafNode represents a leaf node in a Merkle Prefix Trie
@@ -30,13 +29,18 @@ func NewDictionaryLeafNode(key, value []byte) (*DictionaryLeafNode, error) {
 	return &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: true}, nil
 }
 
+// NewDictionaryLeafNode creates a new dictionary leaf node with already calculated hash
+func NewDictionaryLeafNodeCachedHash(key, value, hash []byte) (*DictionaryLeafNode, error) {
+	return &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: false, commitmentHash: hash}, nil
+}
+
 // GetHash is the implementation of Node.GetHash
 func (dln *DictionaryLeafNode) GetHash() []byte {
 	if dln.recalculateHash {
-		dln.commitmentHash = crypto.WitnessKeyAndValue(dln.key, dln.value)
+		dln.commitmentHash = crypto.WitnessKeyAndValue(dln.key[:], dln.value[:])
 		dln.recalculateHash = false
 	}
-	return utils.CloneByteSlice(dln.commitmentHash)
+	return dln.commitmentHash
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -62,7 +66,7 @@ func (dln *DictionaryLeafNode) GetRightChild() Node {
 // SetValue is the implementation of Node.SetValue
 func (dln *DictionaryLeafNode) SetValue(value []byte) {
 	if !bytes.Equal(dln.value, value) {
-		dln.value = utils.CloneByteSlice(value)
+		dln.value = value
 		dln.changed = true
 		dln.recalculateHash = true
 	}
@@ -70,12 +74,12 @@ func (dln *DictionaryLeafNode) SetValue(value []byte) {
 
 // GetValue is the implementation of Node.GetValue
 func (dln *DictionaryLeafNode) GetValue() []byte {
-	return utils.CloneByteSlice(dln.value)
+	return dln.value
 }
 
 // GetKey is the implementation of Node.GetKey
 func (dln *DictionaryLeafNode) GetKey() []byte {
-	return utils.CloneByteSlice(dln.key)
+	return dln.key
 }
 
 // IsEmpty is the implementation of Node.IsEmpty
@@ -149,24 +153,40 @@ func (dln *DictionaryLeafNode) Equals(n Node) bool {
 
 // NewDictionaryLeafNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
 func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
+	var key, value []byte
 	if len(b) == 0 {
 		return nil, fmt.Errorf("Need at least 1 byte")
 	}
-	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
-	key, err := wire.ReadVarBytes(buf, 256, "key")
+
+	buf := bytes.NewBuffer(b[1:]) // lob off type byte
+
+	iLen := int32(0)
+	err := binary.Read(buf, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
-	if len(key) == 0 {
-		return nil, fmt.Errorf("Key should be at least 1 byte")
+	if iLen > 0 {
+		if buf.Len() < int(iLen) {
+			return nil, fmt.Errorf("Specified length of key not present in buffer")
+		}
+		key = buf.Next(int(iLen))
+	} else {
+		return nil, fmt.Errorf("Dictionary leaf node needs a key of at least 1 byte")
 	}
-	value, err := wire.ReadVarBytes(buf, 256, "value")
+	iLen = 0
+	err = binary.Read(buf, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
-	if len(value) == 0 {
-		return nil, fmt.Errorf("Value should be at least 1 byte")
+	if iLen > 0 {
+		if buf.Len() < int(iLen) {
+			return nil, fmt.Errorf("Specified length of value not present in buffer")
+		}
+		value = buf.Next(int(iLen))
+	} else {
+		return nil, fmt.Errorf("Dictionary leaf node needs a value of at least 1 byte")
 	}
+
 	return NewDictionaryLeafNode(key, value)
 }
 
@@ -174,7 +194,13 @@ func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
 func (dln *DictionaryLeafNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeDictionaryLeaf))
-	wire.WriteVarBytes(&buf, dln.key)
-	wire.WriteVarBytes(&buf, dln.value)
+	binary.Write(&buf, binary.BigEndian, int32(len(dln.key)))
+	buf.Write(dln.key)
+	binary.Write(&buf, binary.BigEndian, int32(len(dln.value)))
+	buf.Write(dln.value)
 	return buf.Bytes()
+}
+
+func (dln *DictionaryLeafNode) ByteSize() int {
+	return 9 + len(dln.key) + len(dln.value)
 }

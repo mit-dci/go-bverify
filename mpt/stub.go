@@ -131,3 +131,8 @@ func (s *Stub) Bytes() []byte {
 	buf.Write(s.hash)
 	return buf.Bytes()
 }
+
+// ByteSize returns the length of Bytes() without actually serializing it
+func (s *Stub) ByteSize() int {
+	return 1 + len(s.hash)
+}

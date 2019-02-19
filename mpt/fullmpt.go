@@ -248,6 +248,11 @@ func (fm *FullMPT) Size() int {
 	return fm.root.NonEmptyLeafNodesInSubtree()
 }
 
+// ByteSize returns the size of Bytes() without actually serializing
+func (fm *FullMPT) ByteSize() int {
+	return fm.root.ByteSize()
+}
+
 // Bytes serializes the FullMPT into a byte slice
 func (fm *FullMPT) Bytes() []byte {
 	return fm.root.Bytes()

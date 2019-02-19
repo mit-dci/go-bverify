@@ -122,6 +122,11 @@ func copyChangesOnlyHelper(currentNode Node) (Node, error) {
 	return NewInteriorNode(leftChild, rightChild)
 }
 
+// ByteSize returns the length of Bytes()
+func (dm *DeltaMPT) ByteSize() int {
+	return dm.root.ByteSize()
+}
+
 // Bytes serializes the DeltaMPT into a byte slice
 func (dm *DeltaMPT) Bytes() []byte {
 	return dm.root.Bytes()

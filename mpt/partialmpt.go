@@ -69,7 +69,7 @@ func copyMultiplePaths(matchingKeys [][]byte, copyNode Node, currentBitIndex int
 		if copyNode.IsEmpty() {
 			return NewEmptyLeafNode()
 		}
-		return NewDictionaryLeafNode(copyNode.GetKey(), copyNode.GetValue())
+		return NewDictionaryLeafNodeCachedHash(copyNode.GetKey(), copyNode.GetValue(), copyNode.GetHash())
 	}
 
 	// subcase: intermediate node
@@ -148,6 +148,10 @@ func (pm *PartialMPT) ProcessUpdates(pm2 *PartialMPT) error {
 	newRoot, _ := UpdateNode(pm.root, pm2.root)
 	pm.root = newRoot.(*InteriorNode)
 	return nil
+}
+
+func (pm *PartialMPT) ByteSize() int {
+	return pm.root.ByteSize()
 }
 
 // Bytes serializes the PartialMPT into a byte slice

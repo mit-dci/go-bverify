@@ -186,7 +186,7 @@ func TestInteriorNodeSerialize(t *testing.T) {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
 
-	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0xAB}) // Length for left, but no bytes with actual data
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0xAB, 0x00, 0x00, 0x00}) // Length for left, but no bytes with actual data
 	if err == nil {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
@@ -196,17 +196,17 @@ func TestInteriorNodeSerialize(t *testing.T) {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
 
-	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00}) // zero-length key
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00, 0x00, 0x00, 0x00}) // zero-length key
 	if err == nil {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
 
-	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x01, 0xFF, 0x00}) // invalid type for left node
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00, 0x00, 0x00, 0x01, 0xFF, 0x00, 0x00, 0x00, 0x00}) // invalid type for left node
 	if err == nil {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
 
-	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00, 0x01, 0xFF}) // invalid type for right node
+	_, err = NewInteriorNodeFromBytes([]byte{0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF}) // invalid type for right node
 	if err == nil {
 		t.Error("NewInteriorNodeFromBytes with invalid data should have returned an error, but did not")
 	}
