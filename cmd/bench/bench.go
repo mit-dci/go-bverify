@@ -48,8 +48,9 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 	runs := maxTotalLogs / increments
 
 	for iRun := 0; iRun < runs; iRun++ {
-		var wg sync.WaitGroup
 		fmt.Printf("\rProof Size Run [%d/%d] (%.2f %%)", iRun+1, runs, float64(iRun+1)/float64(runs)*float64(100))
+
+		var wg sync.WaitGroup
 		// Since we're not actually verifying the statements, we can just
 		// use random pubkeys, logIDs and witnesses
 		pub33 := [33]byte{}
@@ -94,6 +95,7 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 
 		// Make an arrays for keeping the total size of received
 		// proofs, one element per proofLogs element
+		receivedProofs := make([]int64, len(proofLogs))
 		receivedProofSizes := make([]int64, len(proofLogs))
 		rand.Seed(time.Now().UnixNano())
 
@@ -101,16 +103,11 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 		// in the cache array
 		maxLogId := ((iRun + 1) * increments)
 
-		// This is the number of samples we take for each number of
-		// logs. Given that different log IDs could lead to smaller or
-		// bigger proofs
-		numSamples := 20
-
-		// Get proof sizes for all requested # logs by making 50 random
+		// Get proof sizes for all requested # logs by getting all possible
 		// samples from the full tree
-		for i := 0; i < numSamples; i++ {
+		for i := 0; i < maxLogId-1000; i++ {
 			wg.Add(1)
-			go func() {
+			go func(pIdx int) {
 				// Take random logIDs from the known logIDs the size of the
 				// desired number of proofs
 				logIdSets := make([][][]byte, len(proofLogs))
@@ -126,7 +123,7 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 				for logId := 0; logId < maxProofLogs; logId++ {
 					for idx, pl := range proofLogs {
 						if logId < pl {
-							offset := rand.Intn(maxLogId)
+							offset := (pIdx + logId) * 32
 							logIdSets[idx][logId] = logIds[offset : offset+32]
 						}
 					}
@@ -139,6 +136,7 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 					wg2.Add(1)
 					go func(idx int) {
 						partialMPT, _ := srv.GetProofForKeys(logIdSets[idx])
+						atomic.AddInt64(&(receivedProofs[idx]), int64(1))
 						atomic.AddInt64(&(receivedProofSizes[idx]), int64(partialMPT.ByteSize()))
 						wg2.Done()
 					}(i)
@@ -147,14 +145,14 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 				wg2.Wait()
 				logIdSets = nil
 				wg.Done()
-			}()
+			}(i)
 		}
 
 		wg.Wait()
 
 		// Write the average sampled sizes to the TEX files
 		for idx := range proofLogs {
-			graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", iRun*increments, atomic.LoadInt64(&receivedProofSizes[idx])/int64(numSamples))))
+			graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", iRun*increments, atomic.LoadInt64(&receivedProofSizes[idx])/atomic.LoadInt64(&receivedProofs[idx]))))
 		}
 	}
 
