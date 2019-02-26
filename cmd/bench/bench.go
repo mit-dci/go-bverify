@@ -12,6 +12,12 @@ import (
 	"github.com/mit-dci/go-bverify/server"
 )
 
+const (
+	PROOFSIZE_TOTALLOGS   = 10000000
+	PROOFSIZE_INCREMENTS  = 100000
+	PROOFSIZE_SAMPLELIMIT = 1000
+)
+
 func main() {
 	f, err := os.Create("cpu.pprof")
 	if err != nil {
@@ -23,15 +29,15 @@ func main() {
 	}
 	defer pprof.StopCPUProfile()
 
-	runProofSizeBench(1000, 20000)
+	runProofSizeBench()
 }
 
 // runProofSizeBench will add 10k logs each run, and
 // report the average proof size for 1, 10, 100, 1000 logs
-func runProofSizeBench(increments, maxTotalLogs int) {
+func runProofSizeBench() {
 	// These are the different # logs we sample proof sizes for.
 	// We output a graph per number of logs
-	proofLogs := []int{1, 10, 100, 1000}
+	proofLogs := [4]int{1, 10, 100, 1000}
 
 	srv, err := server.NewServer("")
 	if err != nil {
@@ -46,17 +52,18 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 		graphs[i].Write([]byte("\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
 		graphs[i].Write([]byte(fmt.Sprintf("\t\txlabel=Number of server logs,\n\t\tylabel=Proof size for %d logs (bytes)]\n", pl)))
 		graphs[i].Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
+		graphs[i].Write([]byte("\t\t\t(0,0)\n"))
 		defer graphs[i].Close()
 	}
 
 	// Store the log IDs into one big byteslice
-	logIds := make([]byte, 32*maxTotalLogs)
+	logIds := make([]byte, 32*PROOFSIZE_TOTALLOGS)
 
 	// We need total / increments number of runs
-	runCount := maxTotalLogs / increments
+	runCount := PROOFSIZE_TOTALLOGS / PROOFSIZE_INCREMENTS
 
 	for runIdx := 0; runIdx < runCount; runIdx++ {
-		fmt.Printf("Proof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes\n", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
+		fmt.Printf("\rProof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
 
 		var wg sync.WaitGroup
 		// Since we're not actually verifying the statements, we can just
@@ -67,9 +74,9 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 			panic(err)
 		}
 
-		for logIdx := 0; logIdx < increments; logIdx++ {
+		for logIdx := 0; logIdx < PROOFSIZE_INCREMENTS; logIdx++ {
 			wg.Add(1)
-			go func(run, inc, idx int) {
+			go func(run, idx int) {
 
 				// Read a random witness and log ID
 				witness := make([]byte, 32)
@@ -83,14 +90,14 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 
 				// startIdx determines the start position of the LogID in the
 				// large byteslice we use to cache them
-				startIdx := (run * inc * 32) + idx*32
+				startIdx := (run * PROOFSIZE_INCREMENTS * 32) + idx*32
 				// cache the generated LogID into the big array
 				copy(logIds[startIdx:], logId[:])
 
 				witness = nil
 
 				wg.Done()
-			}(runIdx, increments, logIdx)
+			}(runIdx, logIdx)
 		}
 		// Wait for all logs to be finished in the goroutines
 		wg.Wait()
@@ -109,8 +116,9 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 
 		// This determines the range in which we can look for LogIDs
 		// in the cache array
-		maxLogId := ((runIdx + 1) * increments)
+		maxLogId := ((runIdx + 1) * PROOFSIZE_INCREMENTS)
 
+		wg = sync.WaitGroup{}
 		// Get proof sizes for all requested # logs by getting all possible
 		// samples from the full tree
 		for i := 0; i < maxLogId; i++ {
@@ -121,7 +129,12 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 				logIdSets := make([][][]byte, len(proofLogs))
 				maxProofLogs := 0
 				for idx, pl := range proofLogs {
-					if i+pl < maxLogId { // Only try the slice if it still fits within the bounds of our logs collection
+					numLogs := atomic.LoadInt64(&receivedProofs[idx])
+					// Only try the slice if it still fits within the bounds of our logs collection
+					// Don't use overlapping slices and cap it on ~PROOFSIZE_SAMPLELIMIT samples.
+					// Because this function is executed in parallel there will be _at least_ PROOFSIZE_SAMPLELIMIT
+					// samples per run. Could be slightly more
+					if pIdx+pl < maxLogId && (pIdx%pl == 0) && numLogs < PROOFSIZE_SAMPLELIMIT {
 						logIdSets[idx] = make([][]byte, pl)
 						if pl > maxProofLogs {
 							maxProofLogs = pl
@@ -168,7 +181,7 @@ func runProofSizeBench(increments, maxTotalLogs int) {
 			numLogs := atomic.LoadInt64(&receivedProofs[idx])
 			// Only write the graph point if we took more than 0 samples
 			if numLogs > 0 {
-				graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", runIdx*increments, atomic.LoadInt64(&receivedProofSizes[idx])/numLogs)))
+				graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", (runIdx+1)*PROOFSIZE_INCREMENTS, atomic.LoadInt64(&receivedProofSizes[idx])/numLogs)))
 			}
 		}
 	}
