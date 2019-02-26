@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
@@ -45,11 +46,31 @@ func NewInteriorNodeWithCachedHash(leftChild, rightChild Node, hash []byte) (*In
 func (i *InteriorNode) GetHash() []byte {
 	if i.recalculateHash {
 		hasher := fastsha256.New()
+
+		var leftHash []byte
+		var rightHash []byte
+		var wg sync.WaitGroup
 		if i.leftChild != nil {
-			hasher.Write(i.leftChild.GetHash())
+			wg.Add(1)
+			go func() {
+				leftHash = i.leftChild.GetHash()
+				wg.Done()
+			}()
 		}
 		if i.rightChild != nil {
-			hasher.Write(i.rightChild.GetHash())
+			wg.Add(1)
+			go func() {
+				rightHash = i.rightChild.GetHash()
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		if len(leftHash) > 0 {
+			hasher.Write(leftHash)
+		}
+		if len(rightHash) > 0 {
+			hasher.Write(rightHash)
 		}
 		i.hash = hasher.Sum(nil)
 		hasher = nil
