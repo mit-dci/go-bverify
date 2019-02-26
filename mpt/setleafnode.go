@@ -3,6 +3,7 @@ package mpt
 import (
 	"bytes"
 	"fmt"
+	"io"
 )
 
 // SetLeafNode represents a leaf node in a Merkle Prefix Trie
@@ -26,6 +27,11 @@ func NewSetLeafNode(value []byte) (*SetLeafNode, error) {
 
 // GetHash is the implementation of Node.GetHash
 func (sln *SetLeafNode) GetHash() []byte {
+	return sln.value
+}
+
+// GetGraphHash is the implementation of Node.GetGraphHash
+func (sln *SetLeafNode) GetGraphHash() []byte {
 	return sln.value
 }
 
@@ -146,4 +152,9 @@ func (sln *SetLeafNode) Bytes() []byte {
 
 func (sln *SetLeafNode) ByteSize() int {
 	return 1 + len(sln.value)
+}
+
+// WriteGraphNodes is the implementation of Node.WriteGraphNodes
+func (sln *SetLeafNode) WriteGraphNodes(w io.Writer) {
+	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,dashed\"\n\tcolor=red4\n\tfillcolor=salmon];\n", sln.GetGraphHash())))
 }

@@ -75,19 +75,28 @@ func copyMultiplePaths(matchingKeys [][]byte, copyNode Node, currentBitIndex int
 	// subcase: intermediate node
 	// divide up keys into those that match the right prefix (...1)
 	// and those that match the left prefix (...0)
-	matchLeft := make([][]byte, 0)
-	matchRight := make([][]byte, 0)
+	matchLeft := make([][]byte, len(matchingKeys))
+	matchRight := make([][]byte, len(matchingKeys))
+	leftIdx := 0
+	rightIdx := 0
 	for _, key := range matchingKeys {
 		bit := utils.GetBit(key, uint(currentBitIndex+1))
 		if bit {
-			matchRight = append(matchRight, key)
+			matchRight[rightIdx] = key
+			rightIdx++
 		} else {
-			matchLeft = append(matchLeft, key)
+			matchLeft[leftIdx] = key
+			leftIdx++
 		}
 	}
+	matchLeft = matchLeft[:leftIdx]
+	matchRight = matchRight[:rightIdx]
+
 	leftChild, _ := copyMultiplePaths(matchLeft, copyNode.GetLeftChild(), currentBitIndex+1)
 	rightChild, _ := copyMultiplePaths(matchRight, copyNode.GetRightChild(), currentBitIndex+1)
-	return NewInteriorNode(leftChild, rightChild)
+	// We're copying a part of the tree that will end up being hashed to the same result. So
+	// cache the hash we already know to save re-hashing it!
+	return NewInteriorNodeWithCachedHash(leftChild, rightChild, copyNode.GetHash())
 }
 
 // Get gets the value mapped to by key or null if the
@@ -148,6 +157,14 @@ func (pm *PartialMPT) ProcessUpdates(pm2 *PartialMPT) error {
 	newRoot, _ := UpdateNode(pm.root, pm2.root)
 	pm.root = newRoot.(*InteriorNode)
 	return nil
+}
+
+func (pm *PartialMPT) Graph() []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte("digraph pmpt {\n"))
+	pm.root.WriteGraphNodes(&buf)
+	buf.Write([]byte("\n}\n"))
+	return buf.Bytes()
 }
 
 func (pm *PartialMPT) ByteSize() int {

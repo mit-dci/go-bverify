@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
@@ -28,9 +29,16 @@ type InteriorNode struct {
 // Compile time check if InteriorNode implements Node properly
 var _ Node = &InteriorNode{}
 
-// NewInteriorNode creates a new empty leaf node
+// NewInteriorNode creates a new interior node
 func NewInteriorNode(leftChild, rightChild Node) (*InteriorNode, error) {
 	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: true, hash: make([]byte, 32)}, nil
+}
+
+// NewInteriorNodeWithCachedHash creates a new interior node with a cached hash.
+// This is useful when creating proof trees - since we're just substituting parts
+// of the tree with stubs, the resulting hashes are equal. Rehashing is a lot of overhead
+func NewInteriorNodeWithCachedHash(leftChild, rightChild Node, hash []byte) (*InteriorNode, error) {
+	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: false, hash: hash}, nil
 }
 
 // GetHash is the implementation of Node.GetHash
@@ -48,6 +56,11 @@ func (i *InteriorNode) GetHash() []byte {
 		i.recalculateHash = false
 	}
 	return i.hash
+}
+
+// GetGraphHash is the implementation of Node.GetGraphHash
+func (i *InteriorNode) GetGraphHash() []byte {
+	return i.GetHash()
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -291,4 +304,18 @@ func (i *InteriorNode) Bytes() []byte {
 		binary.Write(&buf, binary.BigEndian, int32(0))
 	}
 	return buf.Bytes()
+}
+
+// WriteGraphNodes is the implementation of Node.WriteGraphNodes
+func (i *InteriorNode) WriteGraphNodes(w io.Writer) {
+	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,dashed\"\n\tcolor=black\n\tfillcolor=gray68];\n", i.GetGraphHash())))
+	if i.leftChild != nil {
+		i.leftChild.WriteGraphNodes(w)
+		w.Write([]byte(fmt.Sprintf("\"%x\" -> \"%x\";\n", i.GetGraphHash(), i.leftChild.GetGraphHash())))
+	}
+	if i.rightChild != nil {
+		i.rightChild.WriteGraphNodes(w)
+		w.Write([]byte(fmt.Sprintf("\"%x\" -> \"%x\";\n", i.GetGraphHash(), i.rightChild.GetGraphHash())))
+	}
+
 }

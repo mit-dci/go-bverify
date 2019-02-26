@@ -199,3 +199,11 @@ func (srv *Server) Commit() error {
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
 	return mpt.NewPartialMPTIncludingKeys(srv.fullmpt, keys)
 }
+
+func (srv *Server) TreeSize() int {
+	return srv.fullmpt.ByteSize()
+}
+
+func (srv *Server) TreeGraph() []byte {
+	return srv.fullmpt.Graph()
+}

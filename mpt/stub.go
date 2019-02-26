@@ -2,6 +2,8 @@ package mpt
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 )
 
 // Stub represents an omitted path in a MPT. Stubs only store a
@@ -21,6 +23,11 @@ func NewStub(hash []byte) (*Stub, error) {
 
 // GetHash is the implementation of Node.GetHash
 func (s *Stub) GetHash() []byte {
+	return s.hash
+}
+
+// GetGraphHash is the implementation of Node.GetGraphHash
+func (s *Stub) GetGraphHash() []byte {
 	return s.hash
 }
 
@@ -135,4 +142,9 @@ func (s *Stub) Bytes() []byte {
 // ByteSize returns the length of Bytes() without actually serializing it
 func (s *Stub) ByteSize() int {
 	return 1 + len(s.hash)
+}
+
+// WriteGraphNodes is the implementation of Node.WriteGraphNodes
+func (s *Stub) WriteGraphNodes(w io.Writer) {
+	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,dashed\"\n\ttextcolor=blue\n\tcolor=blue\n\tfillcolor=lightblue];\n", s.GetGraphHash())))
 }

@@ -2,6 +2,10 @@ package mpt
 
 import (
 	"bytes"
+	"fmt"
+	"io"
+
+	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
 
 // EmptyLeafNode represents an empty leaf in the tree. Empty leaves
@@ -9,8 +13,9 @@ import (
 // hash of all 0s.
 //
 type EmptyLeafNode struct {
-	changed bool
-	hash    []byte
+	changed   bool
+	hash      []byte
+	graphHash []byte
 }
 
 // Compile time check if DictionaryLeafNode implements Node properly
@@ -18,12 +23,21 @@ var _ Node = &EmptyLeafNode{}
 
 // NewEmptyLeafNode creates a new empty leaf node
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
-	return &EmptyLeafNode{changed: true, hash: make([]byte, 32)}, nil
+	returnVal := &EmptyLeafNode{changed: true, hash: make([]byte, 32)}
+	hasher := fastsha256.New()
+	hasher.Write([]byte(fmt.Sprintf("%x", returnVal)))
+	returnVal.graphHash = hasher.Sum(nil)
+	return returnVal, nil
 }
 
 // GetHash is the implementation of Node.GetHash
 func (eln *EmptyLeafNode) GetHash() []byte {
 	return eln.hash
+}
+
+// GetGraphHash is the implementation of Node.GetGraphHash
+func (eln *EmptyLeafNode) GetGraphHash() []byte {
+	return eln.graphHash
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -136,4 +150,8 @@ func (eln *EmptyLeafNode) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(NodeTypeEmptyLeaf))
 	return buf.Bytes()
+}
+
+func (eln *EmptyLeafNode) WriteGraphNodes(w io.Writer) {
+	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,solid\"\n\tfontcolor=gray50\n\tcolor=gray50\n\tfillcolor=white];\n", eln.GetGraphHash())))
 }

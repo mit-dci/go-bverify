@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/crypto"
 )
@@ -16,8 +17,8 @@ import (
 type DictionaryLeafNode struct {
 	key             []byte
 	value           []byte
-	changed         bool
 	commitmentHash  []byte
+	changed         bool
 	recalculateHash bool
 }
 
@@ -41,6 +42,11 @@ func (dln *DictionaryLeafNode) GetHash() []byte {
 		dln.recalculateHash = false
 	}
 	return dln.commitmentHash
+}
+
+// GetGraphHash is the implementation of Node.GetGraphHash
+func (dln *DictionaryLeafNode) GetGraphHash() []byte {
+	return dln.GetHash()
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild
@@ -203,4 +209,8 @@ func (dln *DictionaryLeafNode) Bytes() []byte {
 
 func (dln *DictionaryLeafNode) ByteSize() int {
 	return 9 + len(dln.key) + len(dln.value)
+}
+
+func (dln *DictionaryLeafNode) WriteGraphNodes(w io.Writer) {
+	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,solid\"\n\tfontcolor=blue\n\tcolor=blue\n\tfillcolor=lightblue];\n", dln.GetGraphHash())))
 }

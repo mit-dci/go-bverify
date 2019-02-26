@@ -2,6 +2,7 @@ package mpt
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/utils"
 )
@@ -42,6 +43,12 @@ type Node interface {
 
 	// GetHash returns the hash of this node
 	GetHash() []byte
+
+	// GetGraphHash returns the hash of this node when presenting in a graph
+	// for most node types this'll be equal - but for EmptyLeafNodes this will
+	// hash the address of the object to make sure empty leaf nodes have unique
+	// hashes
+	GetGraphHash() []byte
 
 	// CountHashesRequiredForGetHash will count the number of hashes required
 	// to (re)calculate the hash of this Node
@@ -108,6 +115,9 @@ type Node interface {
 
 	// Returns true if the passed node is equal to the object the method is called on
 	Equals(node Node) bool
+
+	// Writes a visualization of the node and its children to the writer in DOT format
+	WriteGraphNodes(w io.Writer)
 }
 
 // GetNodeHeight returns the height of a node in the MPT, calculated bottom (leaves) up.

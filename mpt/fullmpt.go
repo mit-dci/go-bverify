@@ -273,3 +273,11 @@ func NewFullMPTFromBytes(b []byte) (*FullMPT, error) {
 	// TODO: Should check if there's stub nodes in the tree we deserialized
 	return newFullMPTWithRoot(in), nil
 }
+
+func (fm *FullMPT) Graph() []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte("digraph fmpt {\n"))
+	fm.root.WriteGraphNodes(&buf)
+	buf.Write([]byte("\n}\n"))
+	return buf.Bytes()
+}
