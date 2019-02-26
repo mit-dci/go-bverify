@@ -118,7 +118,7 @@ func RunProofSizePerLogBench() {
 		// Get the proof for the keys in each of the sets and then
 		// calculate their size
 		var wg2 sync.WaitGroup
-		for ipL := 0; ipL < loops; ipL++ {
+		for ipL := 0; ipL < PROOFSIZEPERLOG_SAMPLELIMIT; ipL++ {
 			if len(logIdSets[ipL]) > 0 {
 				wg2.Add(1)
 				go func(idx int) {
