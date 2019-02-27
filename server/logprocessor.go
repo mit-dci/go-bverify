@@ -95,14 +95,16 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 	if t == wire.MessageTypeSubscribeProofUpdates {
 		lp.autoUpdates = true
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
+		return nil
 	}
 
 	if t == wire.MessageTypeUnsubscribeProofUpdates {
 		lp.autoUpdates = false
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
+		return nil
 	}
 
-	return fmt.Errorf("Unrecognized message type received")
+	return fmt.Errorf("Unrecognized message type received: %x", byte(t))
 }
 
 func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage) error {

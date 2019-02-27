@@ -23,7 +23,7 @@ func (c *Connection) Close() error {
 
 func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	bType := make([]byte, 1)
-	bLen := make([]byte, 2)
+	bLen := make([]byte, 4)
 	n, err := io.ReadFull(c.conn, bType)
 	if err != nil {
 		return 0x00, nil, err
@@ -36,11 +36,11 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	if err != nil {
 		return 0x00, nil, err
 	}
-	if n != 2 {
-		return 0x00, nil, fmt.Errorf("Wrong length read for length : expected 2, got %d", n)
+	if n != 4 {
+		return 0x00, nil, fmt.Errorf("Wrong length read for length : expected 4, got %d", n)
 	}
 
-	l := binary.BigEndian.Uint16(bLen)
+	l := binary.BigEndian.Uint32(bLen)
 	bMsg := make([]byte, l)
 	if l > 0 {
 		n, err = io.ReadFull(c.conn, bMsg)
@@ -59,9 +59,9 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 
 func (c *Connection) WriteMessage(t MessageType, m []byte) error {
 	c.writeLock.Lock()
-	bMsg := make([]byte, 3)
+	bMsg := make([]byte, 5)
 	bMsg[0] = byte(t)
-	binary.BigEndian.PutUint16(bMsg[1:], uint16(len(m)))
+	binary.BigEndian.PutUint32(bMsg[1:], uint32(len(m)))
 	bMsg = append(bMsg, m...)
 	//fmt.Printf("> [%x]\n", bMsg)
 	n, err := c.conn.Write(bMsg)
