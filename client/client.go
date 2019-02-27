@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 
@@ -18,19 +19,21 @@ import (
 type Client struct {
 	conn          *wire.Connection
 	key           *btcec.PrivateKey
+	keyBytes      []byte
 	ack           chan bool
 	proof         chan *mpt.PartialMPT
 	pubKey        [33]byte
-	OnError       func(error)
-	OnProofUpdate func([]byte)
+	OnError       func(error, *Client)
+	OnProofUpdate func([]byte, *Client)
 }
 
 func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
+
 	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), key)
 	var pk [33]byte
 	copy(pk[:], pub.SerializeCompressed())
 
-	cli := &Client{conn: wire.NewConnection(c), key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
+	cli := &Client{conn: wire.NewConnection(c), keyBytes: key, key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
 	go cli.ReceiveLoop()
 	return cli, nil
 }
@@ -42,6 +45,10 @@ func NewClient(key []byte) (*Client, error) {
 	}
 
 	return NewClientWithConnection(key, c)
+}
+
+func (c *Client) UsesKey(key []byte) bool {
+	return bytes.Equal(key, c.keyBytes)
 }
 
 func (c *Client) ReceiveLoop() {
@@ -59,14 +66,14 @@ func (c *Client) ReceiveLoop() {
 
 		if t == wire.MessageTypeError {
 			if c.OnError != nil {
-				go c.OnError(fmt.Errorf("%s", string(p)))
+				go c.OnError(fmt.Errorf("%s", string(p)), c)
 			}
 			return
 		}
 
 		if t == wire.MessageTypeProofUpdate {
 			if c.OnProofUpdate != nil {
-				go c.OnProofUpdate(p)
+				go c.OnProofUpdate(p, c)
 			}
 			continue
 		}

@@ -2,7 +2,6 @@ package benchmarks
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -22,7 +21,7 @@ const (
 // PROOFSIZEPERLOG_INCREMENTS up to PROOFSIZEPERLOG_MAXLOGCOUNT
 // logs in total (in steps of PROOFSIZEPERLOG_INCREMENTS)
 func RunProofSizePerLogBench() {
-	fmt.Printf("\n\rRunning proof size per log benchmark")
+	fmt.Printf("Running proof size per log benchmark\n")
 	srv, err := server.NewServer("")
 	if err != nil {
 		panic(err)
@@ -38,48 +37,9 @@ func RunProofSizePerLogBench() {
 	defer graph.Close()
 
 	// Store the log IDs into one big byteslice
-	logIds := make([]byte, 32*PROOFSIZEPERLOG_TOTALLOGS)
+	logIds := makeDummyLogs(srv, PROOFSIZEPERLOG_TOTALLOGS)
 
-	var wg sync.WaitGroup
-	// Since we're not actually verifying the statements, we can just
-	// use random pubkeys, logIDs and witnesses
-	pub33 := [33]byte{}
-	_, err = rand.Read(pub33[:])
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("\rRunning proof size per log benchmark: [Adding %d logs...]", PROOFSIZEPERLOG_TOTALLOGS)
-
-	for logIdx := 0; logIdx < PROOFSIZEPERLOG_TOTALLOGS; logIdx++ {
-		wg.Add(1)
-		go func(idx int) {
-
-			// Read a random witness and log ID
-			witness := make([]byte, 32)
-			logId := [32]byte{}
-			rand.Read(logId[:])
-			rand.Read(witness[:])
-
-			// Create the log and write the first statement
-			srv.RegisterLogID(logId, pub33)
-			srv.RegisterLogStatement(logId, 0, witness[:])
-
-			// startIdx determines the start position of the LogID in the
-			// large byteslice we use to cache them
-			startIdx := idx * 32
-			// cache the generated LogID into the big array
-			copy(logIds[startIdx:], logId[:])
-
-			witness = nil
-
-			wg.Done()
-		}(logIdx)
-	}
-	// Wait for all logs to be finished in the goroutines
-	wg.Wait()
-
-	fmt.Printf("\rRunning proof size per log benchmark: [Committing the log]                  ")
+	fmt.Printf("\nRunning proof size per log benchmark: [Committing the log]                  ")
 
 	// Now make the server commit the tree
 	err = srv.Commit()
