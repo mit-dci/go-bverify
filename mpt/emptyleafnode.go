@@ -25,7 +25,7 @@ var _ Node = &EmptyLeafNode{}
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
 	returnVal := &EmptyLeafNode{changed: true, hash: make([]byte, 32)}
 	hasher := fastsha256.New()
-	hasher.Write([]byte(fmt.Sprintf("%x", returnVal)))
+	hasher.Write([]byte(fmt.Sprintf("%p", returnVal)))
 	returnVal.graphHash = hasher.Sum(nil)
 	return returnVal, nil
 }

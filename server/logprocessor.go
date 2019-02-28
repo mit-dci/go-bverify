@@ -109,10 +109,21 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 
 func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage) error {
 	keys := make([][]byte, len(msg.LogIDs))
-	for i, key32 := range msg.LogIDs {
-		keys[i] = make([]byte, 32)
-		copy(keys[i], key32[:])
+	// If we didn't receive any keys as parameter, assume all
+	// logs the client created or modified
+	if len(keys) == 0 {
+		keys = make([][]byte, len(lp.logIDs))
+		for i, key := range lp.logIDs {
+			keys[i] = make([]byte, 32)
+			copy(keys[i], key[:])
+		}
+	} else {
+		for i, key32 := range msg.LogIDs {
+			keys[i] = make([]byte, 32)
+			copy(keys[i], key32[:])
+		}
 	}
+
 	proof, err := mpt.NewPartialMPTIncludingKeys(lp.server.LastCommitMpt, keys)
 	if err != nil {
 		return err

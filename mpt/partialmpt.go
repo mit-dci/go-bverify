@@ -42,7 +42,9 @@ func NewPartialMPTIncludingKey(fm *FullMPT, key []byte) (*PartialMPT, error) {
 // (if the key exists and a path to a leaf if it does not)
 // along with the required authentication information.
 func NewPartialMPTIncludingKeys(fm *FullMPT, keys [][]byte) (*PartialMPT, error) {
-	// TODO: Assert keys length
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("Can't create a partial MPT from 0 keys`")
+	}
 	root, _ := copyMultiplePaths(keys, fm.root, -1)
 	return &PartialMPT{root: root.(*InteriorNode)}, nil
 }
@@ -143,18 +145,18 @@ func (pm *PartialMPT) Commitment() []byte {
 // to reflect changes from the passed byte slice (of a serialized PartialMPT).
 // This will change the commitment as mappings have been inserted or removed
 func (pm *PartialMPT) ProcessUpdatesFromBytes(b []byte) error {
-	pm2, err := NewPartialMPTFromBytes(b)
+	dmpt, err := NewDeltaMPTFromBytes(b)
 	if err != nil {
 		return err
 	}
-	return pm.ProcessUpdates(pm2)
+	return pm.ProcessUpdates(dmpt)
 }
 
 // ProcessUpdates updates the authenticated dictionary to reflect changes from
-// the passed PartialMPT. This will change the commitment as mappings have
+// the passed DeltaMPT. This will change the commitment as mappings have
 // been inserted or removed
-func (pm *PartialMPT) ProcessUpdates(pm2 *PartialMPT) error {
-	newRoot, _ := UpdateNode(pm.root, pm2.root)
+func (pm *PartialMPT) ProcessUpdates(delta *DeltaMPT) error {
+	newRoot, _ := UpdateNode(pm.root, delta.root)
 	pm.root = newRoot.(*InteriorNode)
 	return nil
 }

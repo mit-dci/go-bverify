@@ -34,10 +34,10 @@ func RunProofSizeBench() {
 	graphs := make([]*os.File, len(proofLogs))
 	for i, pl := range proofLogs {
 		graphs[i], _ = os.Create(fmt.Sprintf("graph_proofsize_%d.tex", pl))
-		graphs[i].Write([]byte("\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
-		graphs[i].Write([]byte(fmt.Sprintf("\t\txlabel=Number of server logs,\n\t\tylabel=Proof size for %d logs (bytes)]\n", pl)))
-		graphs[i].Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
-		graphs[i].Write([]byte("\t\t\t(0,0)\n"))
+		graphs[i].Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\t\\begin{axis}[\n"))
+		graphs[i].Write([]byte(fmt.Sprintf("\t\t\txlabel=Number of server logs,\n\t\tylabel=Proof size for %d logs (bytes)]\n", pl)))
+		graphs[i].Write([]byte("\n\t\t\t\\addplot[color=red,mark=x] coordinates {\n"))
+		graphs[i].Write([]byte("\t\t\t\t(0,0)\n"))
 		defer graphs[i].Close()
 	}
 
@@ -166,14 +166,21 @@ func RunProofSizeBench() {
 			numLogs := atomic.LoadInt64(&receivedProofs[idx])
 			// Only write the graph point if we took more than 0 samples
 			if numLogs > 0 {
-				graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", (runIdx+1)*PROOFSIZE_INCREMENTS, atomic.LoadInt64(&receivedProofSizes[idx])/numLogs)))
+				graphs[idx].Write([]byte(fmt.Sprintf("\t\t\t\t(%d,%d)\n", (runIdx+1)*PROOFSIZE_INCREMENTS, atomic.LoadInt64(&receivedProofSizes[idx])/numLogs)))
 			}
 		}
 	}
 
 	// Write end markers to the tex files and we're done.
-	for idx := range proofLogs {
+	for idx, pl := range proofLogs {
+		var s = "s"
+		if pl == 1 {
+			s = ""
+		}
 		graphs[idx].Write([]byte("\t\t};"))
-		graphs[idx].Write([]byte("\n\t\t\\end{axis}\n\\end{tikzpicture}"))
+		graphs[idx].Write([]byte("\n\t\t\\end{axis}\n\t\\end{tikzpicture}\n"))
+		graphs[idx].Write([]byte(fmt.Sprintf("\t\\caption{Proof size for %d log%s}\n", pl, s)))
+		graphs[idx].Write([]byte(fmt.Sprintf("\t\\label{graph_proofsize_%d}\n", pl)))
+		graphs[idx].Write([]byte("\\end{figure}\n"))
 	}
 }

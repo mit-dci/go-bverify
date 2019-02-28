@@ -176,6 +176,16 @@ func (srv *Server) Commit() error {
 		commitment = nil
 		return nil
 	}
+
+	var err error
+	// Retain the full MPT at the time of commitment to be able to serve
+	// proofs
+	copy(srv.lastCommitment[:], commitment[:])
+	srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(srv.fullmpt.Bytes())
+	if err != nil {
+		return err
+	}
+
 	delta, _ := mpt.NewDeltaMPT(srv.fullmpt)
 	srv.processorsLock.Lock()
 	var wg sync.WaitGroup
@@ -191,7 +201,7 @@ func (srv *Server) Commit() error {
 	srv.processorsLock.Unlock()
 
 	srv.fullmpt.Reset()
-	copy(srv.lastCommitment[:], commitment[:])
+
 	commitment = nil
 	return nil
 }

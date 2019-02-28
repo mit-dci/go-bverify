@@ -30,7 +30,7 @@ func RunProofSizePerLogBench() {
 
 	// Output a TEX graph
 	graph, _ := os.Create("graph_proofsizeperlog.tex")
-	graph.Write([]byte("\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
+	graph.Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
 	graph.Write([]byte("\t\txlabel=Logs included in proof,\n\t\tylabel=Proof size per log (bytes)]\n"))
 	graph.Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
 	//graph.Write([]byte("\t\t\t(0,0)\n"))
@@ -102,5 +102,8 @@ func RunProofSizePerLogBench() {
 	// Write end markers to the tex file and we're done.
 	graph.Write([]byte("\t\t};"))
 	graph.Write([]byte("\n\t\t\\end{axis}\n\\end{tikzpicture}"))
+	graph.Write([]byte("\t\\caption{Proof size per log}\n"))
+	graph.Write([]byte("\t\\label{graph_proofsizeperlog}\n"))
+	graph.Write([]byte("\\end{figure}\n"))
 
 }

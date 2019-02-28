@@ -90,17 +90,17 @@ func TestPartialMpt(t *testing.T) {
 
 	partialMpt, _ = NewPartialMPTIncludingKey(mpt, k1)
 	mpt.Insert(k1, v2)
-	partialMpt2, _ = NewPartialMPTIncludingKey(mpt, k1)
+	delta, _ := NewDeltaMPT(mpt)
 
-	partialMpt.ProcessUpdates(partialMpt2)
+	partialMpt.ProcessUpdates(delta)
 	if !bytes.Equal(partialMpt.Commitment(), mpt.Commitment()) {
 		t.Errorf("Expected commitment of deserialized partial MPT after update and full MPT to match. They don't")
 	}
 
 	partialMpt, _ = NewPartialMPTIncludingKey(mpt, k1)
 	mpt.Insert(k1, v2)
-	partialMpt2, _ = NewPartialMPTIncludingKey(mpt, k1)
-	partialMpt.ProcessUpdatesFromBytes(partialMpt2.Bytes())
+	delta, _ = NewDeltaMPT(mpt)
+	partialMpt.ProcessUpdatesFromBytes(delta.Bytes())
 	if !bytes.Equal(partialMpt.Commitment(), mpt.Commitment()) {
 		t.Errorf("Expected commitment of deserialized partial MPT after update (via bytes) and full MPT to match. They don't")
 	}
