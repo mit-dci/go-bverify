@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"fmt"
-
 	"github.com/mit-dci/go-bverify/server"
 )
 
