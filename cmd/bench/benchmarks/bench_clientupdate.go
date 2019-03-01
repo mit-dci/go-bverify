@@ -2,11 +2,13 @@ package benchmarks
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
+	mathrand "math/rand"
 	"net"
 	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mit-dci/go-bverify/client"
@@ -15,8 +17,8 @@ import (
 )
 
 const (
-	CLIENTUPDATE_TOTALLOGS = 10000000
-	CLIENTUPDATE_SAMPLES   = 100
+	CLIENTUPDATE_TOTALLOGS = 1000000
+	CLIENTUPDATE_SAMPLES   = 20
 )
 
 type receivedProofUpdate struct {
@@ -53,7 +55,7 @@ func RunClientUpdateBench() {
 
 	results := make([]clientUpdateBenchResultCollection, len(runUpdateSizes))
 	for i, rus := range runUpdateSizes {
-		fmt.Printf("\nRunning client update bench for %d updating logs...\n\n", rus)
+		fmt.Printf("Running client update bench for %d updating logs...\n", rus)
 		results[i] = clientUpdateBenchResultCollection{numberOfChangingLogs: rus, result: runClientUpdateBench(CLIENTUPDATE_TOTALLOGS, rus, trackingLogSizes)}
 	}
 
@@ -72,7 +74,7 @@ func RunClientUpdateBench() {
 
 		table.Write([]byte("\\hline\n"))
 		table.Write([]byte("\\end{tabular}\n"))
-		table.Write([]byte(fmt.Sprintf("\\caption{The average size and processing time of one update for various number of logs tracked (over 100 samples) when the \\sys server is maintaining $10^7$ logs and updating a random selection of $%d$ logs every sample. The measured clients do not update their log, to show the cost of being idle.}\n", rr.numberOfChangingLogs)))
+		table.Write([]byte(fmt.Sprintf("\\caption{The average size and processing time of one update for various number of logs tracked (over %d samples) when the \\sys server is maintaining $%d$ logs and updating a random selection of $%d$ logs. The measured clients do not update their log, to show the cost of being idle.}\n", CLIENTUPDATE_SAMPLES, CLIENTUPDATE_TOTALLOGS, rr.numberOfChangingLogs)))
 		table.Write([]byte(fmt.Sprintf("\\label{table:clientupdate_size_and_time_%d_updates}\n", rr.numberOfChangingLogs)))
 		table.Write([]byte("\\end{table*}	\n"))
 		table.Close()
@@ -103,7 +105,7 @@ func RunClientUpdateBench() {
 		}
 		logs := fmt.Sprintf("%d log%s", pl, s)
 
-		table.Write([]byte(fmt.Sprintf("\\caption{The average size and processing time of one update for %s (over 100 samples) when the \\sys server is maintaining $10^7$ logs and updating an increasing selection of logs every sample. The measured clients does not update its log, to show the cost of being idle.}\n", logs)))
+		table.Write([]byte(fmt.Sprintf("\\caption{The average size and processing time of one update for %s (over %d samples) when the \\sys server is maintaining $%d$ logs and updating an increasing selection of logs. The measured clients does not update its log, to show the cost of being idle.}\n", logs, CLIENTUPDATE_SAMPLES, CLIENTUPDATE_TOTALLOGS)))
 		table.Write([]byte(fmt.Sprintf("\\label{table:clientupdate_size_and_time_%d_logs}\n", pl)))
 		table.Write([]byte("\\end{table*}	\n"))
 		table.Close()
@@ -134,7 +136,7 @@ func RunClientUpdateBench() {
 		}
 		logs := fmt.Sprintf("%d log%s", pl, s)
 
-		table.Write([]byte(fmt.Sprintf("\\caption{The average size of updates per day, month and year for %s (over 100 samples) when the \\sys server is maintaining $10^7$ logs and updating an increasing selection of logs every sample. The measured client does not update its log, to show the cost of being idle.}\n", logs)))
+		table.Write([]byte(fmt.Sprintf("\\caption{The average size of updates per day, month and year for %s (over %d samples) when the \\sys server is maintaining $%d$ logs and updating an increasing selection of logs. The measured client does not update its log, to show the cost of being idle.}\n", logs, CLIENTUPDATE_SAMPLES, CLIENTUPDATE_TOTALLOGS)))
 		table.Write([]byte(fmt.Sprintf("\\label{table:clientupdate_sizes_%d_logs}\n", pl)))
 		table.Write([]byte("\\end{table*}	\n"))
 		table.Close()
@@ -165,7 +167,7 @@ func RunClientUpdateBench() {
 		}
 		logs := fmt.Sprintf("%d log%s", pl, s)
 
-		table.Write([]byte(fmt.Sprintf("\\caption{The average time to process updates to the proofs for %s (over 100 samples) when the \\sys server is maintaining $10^7$ logs and updating an increasing selection of logs every sample. The measured client does not update its log, to show the cost of being idle.}\n", logs)))
+		table.Write([]byte(fmt.Sprintf("\\caption{The average time to process updates to the proofs for %s (over %d samples) when the \\sys server is maintaining $%d$ logs and updating an increasing selection of logs. The measured client does not update its log, to show the cost of being idle.}\n", logs, CLIENTUPDATE_SAMPLES, CLIENTUPDATE_TOTALLOGS)))
 		table.Write([]byte(fmt.Sprintf("\\label{table:table_clientupdate_times_%d_logs}\n", pl)))
 		table.Write([]byte("\\end{table*}	\n"))
 		table.Close()
@@ -190,64 +192,64 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	proofUpdatesChan := make(chan receivedProofUpdate, len(proofLogs)*(CLIENTUPDATE_SAMPLES+1))
 
 	// Create dummy logs, which returns the logIDs
-	// Subtract the number of logs we're tracking for performance
-	// and size, so that the total is actually equal to the
-	// requested total
-	for _, pl := range proofLogs {
-		totalLogs -= pl
-	}
 	logIds := makeDummyLogs(srv, totalLogs)
-
+	srv.Commit()
+	fmt.Printf("\n")
 	results := make([]clientUpdateBenchResult, len(proofLogs))
+	updates := make([]int64, len(proofLogs))
+	updateSizes := make([]int64, len(proofLogs))
+	updateTimes := make([]int64, len(proofLogs))
+	partialMpts := make([]*mpt.PartialMPT, len(proofLogs))
+	partialMptLocks := make([]sync.Mutex, len(proofLogs))
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		updates := make([]int64, len(proofLogs))
-		updateSizes := make([]int64, len(proofLogs))
-		updateTimes := make([]int64, len(proofLogs))
-		partialMpts := make([]*mpt.PartialMPT, len(proofLogs))
-
-		for pu := range proofUpdatesChan {
-			clientIdx := -1
-			for i := 0; i < len(clients); i++ {
-				if clients[i] == pu.forClient {
-					clientIdx = i
-					break
+	wg.Add(runtime.NumCPU())
+	for iThreads := 0; iThreads < runtime.NumCPU(); iThreads++ {
+		go func() {
+			for pu := range proofUpdatesChan {
+				clientIdx := -1
+				for i := 0; i < len(clients); i++ {
+					if clients[i] == pu.forClient {
+						clientIdx = i
+						break
+					}
 				}
-			}
-			if clientIdx == -1 {
-				continue
-			}
-
-			if partialMpts[clientIdx] == nil {
-				// If we don't have a partial MPT for this client, then we
-				// never received *any* proofs. A delta will  not help us as
-				// it will not include the state of the tree prior to us joining
-				// the log. So we need to fetch the PartialMPT first
-
-				partialMpts[clientIdx], err = clients[clientIdx].RequestProof([][32]byte{})
-				if err != nil {
-					fmt.Printf("Error while fetching initial proof: %s\n", err.Error())
+				if clientIdx == -1 {
+					continue
 				}
+				partialMptLocks[clientIdx].Lock()
+				if partialMpts[clientIdx] == nil {
+					// If we don't have a partial MPT for this client, then we
+					// never received *any* proofs. A delta will  not help us as
+					// it will not include the state of the tree prior to us joining
+					// the log. So we need to fetch the PartialMPT first
+
+					partialMpts[clientIdx], err = clients[clientIdx].RequestProof([][32]byte{})
+					if err != nil {
+						fmt.Printf("Error while fetching initial proof: %s\n", err.Error())
+					}
+				}
+
+				// Process the client proof and measure the time it took to update
+
+				start := time.Now()
+				partialMpts[clientIdx].ProcessUpdatesFromBytes(pu.proofUpdate)
+				atomic.AddInt64(&(updateTimes[clientIdx]), time.Since(start).Nanoseconds())
+				partialMptLocks[clientIdx].Unlock()
+
+				atomic.AddInt64(&(updates[clientIdx]), 1)
+				atomic.AddInt64(&updateSizes[clientIdx], int64(len(pu.proofUpdate)))
 			}
 
-			// Process the client proof and measure the time it took to update
-			start := time.Now()
-			partialMpts[clientIdx].ProcessUpdatesFromBytes(pu.proofUpdate)
-			updateTimes[clientIdx] += time.Since(start).Nanoseconds()
-			updates[clientIdx] += 1
-			updateSizes[clientIdx] += int64(len(pu.proofUpdate))
-		}
+			for i, pl := range proofLogs {
+				updateSizeKB := float64(updateSizes[i]) / float64(updates[i]) / float64(1000)
+				updateTimeMS := float64(updateTimes[i]) / float64(updates[i]) / float64(100000)
 
-		for i, pl := range proofLogs {
-			updateSizeKB := float64(updateSizes[i]) / float64(updates[i]) / float64(1000)
-			updateTimeMS := float64(updateTimes[i]) / float64(updates[i]) / float64(100000)
-
-			results[i] = clientUpdateBenchResult{trackingLogCount: pl, averageUpdateSizeKB: updateSizeKB, averageUpdateTimeMS: updateTimeMS}
-		}
-		wg.Done()
-	}()
+				results[i] = clientUpdateBenchResult{trackingLogCount: pl, averageUpdateSizeKB: updateSizeKB, averageUpdateTimeMS: updateTimeMS}
+			}
+			wg.Done()
+		}()
+	}
 
 	onProofUpdate := func(proofUpdate []byte, client *client.Client) {
 		proofUpdatesChan <- receivedProofUpdate{forClient: client, proofUpdate: proofUpdate}
@@ -275,39 +277,42 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		}
 	}
 
-	logIdsToChange := make([][32]byte, numChangeLogs)
-	logIdxsToChange := make([]int, numChangeLogs)
-	for j := 0; j < numChangeLogs; j++ {
-		statement := make([]byte, 4)
-		rand.Read(statement)
-		logIdxsToChange[j] = (int(binary.BigEndian.Uint16(statement[0:4])) % len(logIds))
+	logIdIdx := make([]uint64, totalLogs)
+	logIdxsToChange := make([]int, totalLogs)
+	for i := range logIdxsToChange {
+		logIdIdx[i] = 0
+		logIdxsToChange[i] = i
+	}
+	mathrand.Seed(time.Now().UnixNano())
+	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
-		// Ensure we're not using duplicates
-		found := true
-		for found {
-			logIdxsToChange[j]++
-			found = false
-			for jj := 0; jj < j; jj++ {
-				if logIdxsToChange[jj] == logIdxsToChange[j] {
-					found = true
-				}
-			}
+	var subset = logIdxsToChange[:]
+	logId := [32]byte{}
+	for i := 0; i < CLIENTUPDATE_SAMPLES; i++ {
+		// pick a changing random subset of logs every run
+		if totalLogs > numChangeLogs {
+			startIdx := mathrand.Intn(totalLogs - numChangeLogs)
+			subset = logIdxsToChange[startIdx : startIdx+numChangeLogs]
 		}
 
-		copy(logIdsToChange[j][:], logIds[logIdxsToChange[j]*32:logIdxsToChange[j]*32+32])
-	}
-
-	for i := 0; i < CLIENTUPDATE_SAMPLES; i++ {
-		for _, logId := range logIdsToChange {
+		for j := 0; j < numChangeLogs; j++ {
+			logIdIdx[subset[j]]++
+			copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
 			statement := make([]byte, 32)
 			rand.Read(statement)
-			srv.RegisterLogStatement(logId, uint64(i), statement)
+
+			err = srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
+			if err != nil {
+				panic(err)
+			}
 		}
-		fmt.Printf("\rCommitting [%d/%d]", i, CLIENTUPDATE_SAMPLES)
+		fmt.Printf("\r[%d/%d] Committing server [%d]                    ", i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
 		srv.Commit()
 	}
 
 	close(proofUpdatesChan)
 	wg.Wait()
+	fmt.Printf("\nDone\n")
+
 	return results
 }

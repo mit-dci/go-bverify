@@ -58,11 +58,13 @@ func makeDummyLogs(srv *server.Server, numLogs int) []byte {
 	for i := 0; i < runtime.NumCPU(); i++ {
 		makeLogs(&wg, c)
 	}
+	wg.Add(1)
 	go func() {
 		fmt.Printf("\n")
 		for {
 			fmt.Printf("\rCreated %d/%d dummy logs", numLogs-len(c), numLogs)
 			if len(c) == 0 {
+				wg.Done()
 				break
 			}
 			time.Sleep(time.Second * 1)
