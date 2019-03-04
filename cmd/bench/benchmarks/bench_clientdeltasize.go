@@ -3,7 +3,6 @@ package benchmarks
 import (
 	"crypto/rand"
 	"fmt"
-	"math"
 	mathrand "math/rand"
 	"os"
 	"sync"
@@ -33,7 +32,7 @@ func RunClientDeltaSizeBench() {
 	// Output a TEX graph
 	graph, _ := os.Create("graph_clientdeltasize.tex")
 	graph.Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
-	graph.Write([]byte("\t\txlabel=Number of updated logs out of 1M,\n\t\tylabel=Delta update size (bytes)]\n"))
+	graph.Write([]byte("\t\txlabel=Number of updated logs\n\t\tylabel=Delta update size (bytes)]\n"))
 	graph.Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
 	graph.Write([]byte("\t\t\t(0,0)\n"))
 	defer graph.Close()
@@ -77,10 +76,10 @@ func RunClientDeltaSizeBench() {
 	changeLogs := []int{}
 
 	// Increase the number of changing logs by a factor of 10 every time
-	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100000; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS, numChangeLogs *= 10 {
-		changeLogs = append(changeLogs,numChangeLogs)
+	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100000; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs *= 10 {
+		changeLogs = append(changeLogs, numChangeLogs)
 	}
-	
+
 	for _, numChangeLogs := range changeLogs {
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
 			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]              ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES, len(logIdxsToChange))
