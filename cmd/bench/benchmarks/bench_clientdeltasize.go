@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	CLIENTDELTASIZE_TOTALLOGS    = 10000000
-	CLIENTDELTASIZE_START        = 10
-	CLIENTDELTASIZE_CHANGEFACTOR = 1.5
-	CLIENTDELTASIZE_SAMPLES      = 5
+	CLIENTDELTASIZE_TOTALLOGS = 10000000
+	CLIENTDELTASIZE_SAMPLES   = 20
 )
 
 // RunClientDeltaSizeBench will create 1M logs and then
@@ -76,13 +74,13 @@ func RunClientDeltaSizeBench() {
 	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
 	logId := [32]byte{}
+	changeLogs := []int{}
 
-	changeLogs := make([]int, 0)
-	for numChangeLogs := CLIENTDELTASIZE_START; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs = int(math.Round(float64(numChangeLogs) * float64(CLIENTDELTASIZE_CHANGEFACTOR))) {
-		changeLogs = append(changeLogs, numChangeLogs)
+	// Increase the number of changing logs by a factor of 10 every time
+	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100000; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS, numChangeLogs *= 10 {
+		changeLogs = append(changeLogs,numChangeLogs)
 	}
-	changeLogs = append(changeLogs, CLIENTDELTASIZE_TOTALLOGS)
-
+	
 	for _, numChangeLogs := range changeLogs {
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
 			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]              ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES, len(logIdxsToChange))
