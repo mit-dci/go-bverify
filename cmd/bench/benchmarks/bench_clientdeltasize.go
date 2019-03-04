@@ -3,6 +3,7 @@ package benchmarks
 import (
 	"crypto/rand"
 	"fmt"
+	"math"
 	mathrand "math/rand"
 	"os"
 	"sync"
@@ -14,9 +15,10 @@ import (
 )
 
 const (
-	CLIENTDELTASIZE_TOTALLOGS       = 1000000
-	CLIENTDELTASIZE_CHANGEINCREMENT = 1000
-	CLIENTDELTASIZE_SAMPLES         = 20
+	CLIENTDELTASIZE_TOTALLOGS    = 10000000
+	CLIENTDELTASIZE_START        = 10
+	CLIENTDELTASIZE_CHANGEFACTOR = 1.5
+	CLIENTDELTASIZE_SAMPLES      = 5
 )
 
 // RunClientDeltaSizeBench will create 1M logs and then
@@ -28,6 +30,7 @@ func RunClientDeltaSizeBench() {
 		panic(err)
 	}
 	srv.AutoCommit = false
+	srv.KeepCommitmentTree = false
 
 	// Output a TEX graph
 	graph, _ := os.Create("graph_clientdeltasize.tex")
@@ -72,11 +75,19 @@ func RunClientDeltaSizeBench() {
 	mathrand.Seed(time.Now().UnixNano())
 	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
-	var subset = logIdxsToChange[:]
 	logId := [32]byte{}
-	for numChangeLogs := CLIENTDELTASIZE_CHANGEINCREMENT; numChangeLogs < CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_CHANGEINCREMENT {
-		for i := 0; i < CLIENTUPDATE_SAMPLES; i++ {
+
+	changeLogs := make([]int, 0)
+	for numChangeLogs := CLIENTDELTASIZE_START; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs = int(math.Round(float64(numChangeLogs) * float64(CLIENTDELTASIZE_CHANGEFACTOR))) {
+		changeLogs = append(changeLogs, numChangeLogs)
+	}
+	changeLogs = append(changeLogs, CLIENTDELTASIZE_TOTALLOGS)
+
+	for _, numChangeLogs := range changeLogs {
+		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
+			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]              ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES, len(logIdxsToChange))
 			// pick a changing random subset of logs every run
+			var subset = logIdxsToChange[:]
 			if CLIENTDELTASIZE_TOTALLOGS > numChangeLogs {
 				startIdx := mathrand.Intn(CLIENTDELTASIZE_TOTALLOGS - numChangeLogs)
 				subset = logIdxsToChange[startIdx : startIdx+numChangeLogs]
@@ -93,7 +104,6 @@ func RunClientDeltaSizeBench() {
 					panic(err)
 				}
 			}
-			fmt.Printf("\r[%d/%d] [%d/%d] Committing server [%d]                    ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
 
 			wg.Add(1)
 			srv.Commit()

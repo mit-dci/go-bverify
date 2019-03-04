@@ -42,12 +42,14 @@ type Server struct {
 
 	listener *net.TCPListener
 
-	AutoCommit bool
+	AutoCommit         bool
+	KeepCommitmentTree bool
 }
 
 func NewServer(addr string) (*Server, error) {
 	srv := new(Server)
 	srv.AutoCommit = true
+	srv.KeepCommitmentTree = true
 	srv.addr = addr
 
 	if srv.addr == "" {
@@ -181,9 +183,12 @@ func (srv *Server) Commit() error {
 	// Retain the full MPT at the time of commitment to be able to serve
 	// proofs
 	copy(srv.lastCommitment[:], commitment[:])
-	srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(srv.fullmpt.Bytes())
-	if err != nil {
-		return err
+
+	if srv.KeepCommitmentTree {
+		srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(srv.fullmpt.Bytes())
+		if err != nil {
+			return err
+		}
 	}
 
 	delta, _ := mpt.NewDeltaMPT(srv.fullmpt)
