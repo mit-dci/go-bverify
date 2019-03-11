@@ -5,6 +5,8 @@ import (
 	"fmt"
 	mathrand "math/rand"
 	"os"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/mit-dci/go-bverify/client"
@@ -45,21 +47,38 @@ func RunMicroBench() {
 		clients[i], _ = client.NewClientWithConnection(keys[i][:], c)
 	}
 
+	createLogs := make(chan int, MICROBENCH_TOTALLOGS)
 	// Create the logs
 	for i := 0; i < MICROBENCH_TOTALLOGS; i++ {
-		if i%10000 == 0 {
-			fmt.Printf("\rMicrobench: Creating logs [%d/%d]      ", i+1, MICROBENCH_TOTALLOGS)
-		}
-		client := clients[i%MICROBENCH_NUMCLIENTS]
-		logId, err := client.StartLog([]byte(fmt.Sprintf("Hello world %d", i)))
-		if err != nil {
-			panic(err)
-		}
-		copy(logIds[i*32:], logId[:])
+		createLogs <- i
 	}
 
-	runTimesSigCheck := make([]float64, MICROBENCH_RUNS*MICROBENCH_UPDATELOGS)
-	runTimesMPTUpdate := make([]float64, MICROBENCH_RUNS*MICROBENCH_UPDATELOGS)
+	close(createLogs)
+
+	var wg sync.WaitGroup
+	for iThread := 0; iThread < runtime.NumCPU(); iThread++ {
+		wg.Add(1)
+		go func() {
+			for i := range createLogs {
+				if i%10000 == 0 {
+					fmt.Printf("\rMicrobench: Creating logs [%d/%d]      ", i+1, MICROBENCH_TOTALLOGS)
+				}
+				client := clients[i%MICROBENCH_NUMCLIENTS]
+				logId, err := client.StartLog([]byte(fmt.Sprintf("Hello world %d", i)))
+				if err != nil {
+					panic(err)
+				}
+				copy(logIds[i*32:], logId[:])
+			}
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	srv.Commit()
+
+	runTimesSigCheck := make([]float64, MICROBENCH_UPDATELOGS)
+	runTimesMPTUpdate := make([]float64, MICROBENCH_UPDATELOGS)
 	runTimesCommit := make([]float64, MICROBENCH_RUNS)
 
 	fmt.Printf("\rMicrobench: Shuffling log IDs       ")
@@ -94,48 +113,53 @@ func RunMicroBench() {
 			}
 
 			// The two benchmarked operations (check signature and MPT update)
-			statsIdx := j + iRun*MICROBENCH_UPDATELOGS
+			if iRun == 0 {
+				statsIdx := j + iRun*MICROBENCH_UPDATELOGS
+				start := time.Now()
+				processor.(*server.ServerLogProcessor).VerifyAppendLog(sls)
+				runTimesSigCheck[statsIdx] = float64(time.Since(start).Nanoseconds())
 
-			start := time.Now()
-			processor.(*server.ServerLogProcessor).VerifyAppendLog(sls)
-			runTimesSigCheck[statsIdx] = float64(time.Since(start).Nanoseconds()) / float64(1000000)
-
-			start = time.Now()
-			processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
-			runTimesMPTUpdate[statsIdx] = float64(time.Since(start).Nanoseconds()) / float64(1000000)
+				start = time.Now()
+				processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
+				runTimesMPTUpdate[statsIdx] = float64(time.Since(start).Nanoseconds())
+			}
 		}
 
 		start := time.Now()
 		srv.Commitment()
-		runTimesCommit[iRun] = float64(time.Since(start).Nanoseconds()) / float64(1000000)
+		runTimesCommit[iRun] = float64(time.Since(start).Nanoseconds())
 
 		// Commit handles other stuff such as pushing delta updates to connected clients. We only
 		// want to benchmark the commitment itself.
 		srv.Commit()
 	}
 
+	// Print raw values
+
 	// Add a new client, subscribe to a single log ID. Then repeatedly add statements to 1% of the other logs
 	// and measure the time to generate a proof update for the single log
 
 	runTimesDeltaProof := make([]float64, MICROBENCH_RUNS)
 
-	c, _ := newDummyClientAndProcessor(srv)
-	deltaTestKey := [32]byte{}
-	rand.Read(deltaTestKey[:])
-	deltaTestClient, _ := client.NewClientWithConnection(deltaTestKey[:], c)
-	deltaTestLogId, err := deltaTestClient.StartLog([]byte("Hello World Delta"))
-	if err != nil {
-		panic(err)
-	}
 	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
-		startIdx := mathrand.Intn(MICROBENCH_TOTALLOGS - MICROBENCH_UPDATELOGS)
-		subset := logIdxsToChange[startIdx : startIdx+MICROBENCH_UPDATELOGS]
+		// Make the subset one bigger to ensure we can skip the randLogId
+		startIdx := mathrand.Intn(MICROBENCH_TOTALLOGS - MICROBENCH_UPDATELOGS - 1)
+		subset := logIdxsToChange[startIdx : startIdx+MICROBENCH_UPDATELOGS+1]
 		statement := make([]byte, 32)
 		rand.Read(statement)
+		randLogId := mathrand.Intn(MICROBENCH_TOTALLOGS)
 
 		fmt.Printf("\rMicrobench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
+		skipped := false
 		for j := 0; j < MICROBENCH_UPDATELOGS; j++ {
+			if skipped {
+				fmt.Printf("\nSKIPPED AND STILL HERE!\n")
+			}
+			if subset[j] == randLogId {
+				j = MICROBENCH_UPDATELOGS
+				skipped = true
+			}
 			logIdIdx[subset[j]]++
 			copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
 			srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
@@ -143,8 +167,40 @@ func RunMicroBench() {
 
 		srv.Commit()
 		start := time.Now()
-		srv.GetDeltaProofForKeys([][]byte{deltaTestLogId[:]})
-		runTimesDeltaProof[iRun] = float64(time.Since(start).Nanoseconds()) / float64(1000000)
+		srv.GetDeltaProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		runTimesDeltaProof[iRun] = float64(time.Since(start).Nanoseconds())
+	}
+
+	runTimesFullProof := make([]float64, MICROBENCH_RUNS)
+
+	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
+		// Make the subset one bigger to ensure we can skip the randLogId
+		startIdx := mathrand.Intn(MICROBENCH_TOTALLOGS - (MICROBENCH_UPDATELOGS * 10) - 1)
+		subset := logIdxsToChange[startIdx : startIdx+(MICROBENCH_UPDATELOGS*10)+1]
+		statement := make([]byte, 32)
+		rand.Read(statement)
+		randLogId := mathrand.Intn(MICROBENCH_TOTALLOGS)
+
+		fmt.Printf("\rMicrobench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
+		var logId [32]byte
+		skipped := false
+		for j := 0; j < MICROBENCH_UPDATELOGS*10; j++ {
+			if skipped {
+				fmt.Printf("\nSKIPPED AND STILL HERE!\n")
+			}
+			if subset[j] == randLogId {
+				j = MICROBENCH_UPDATELOGS * 10
+				skipped = true
+			}
+			logIdIdx[subset[j]]++
+			copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
+			srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
+		}
+
+		srv.Commit()
+		start := time.Now()
+		srv.GetProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		runTimesFullProof[iRun] = float64(time.Since(start).Nanoseconds())
 	}
 
 	fmt.Printf("\rMicrobench: Writing output                ")
@@ -157,14 +213,14 @@ func RunMicroBench() {
 	table.Write([]byte(" Operation & Time (ms) & std \\\\\n"))
 	table.Write([]byte(" \\hline \\hline\n"))
 
-	table.Write([]byte(fmt.Sprintf("  Check signature & %.4f & %.4f \\\\\n", average(runTimesSigCheck), stat.StdDev(runTimesSigCheck, nil))))
-	table.Write([]byte(fmt.Sprintf("  Single MPT Update & %.4f & %.4f \\\\\n", average(runTimesMPTUpdate), stat.StdDev(runTimesMPTUpdate, nil))))
-	table.Write([]byte(fmt.Sprintf("  Batch Commitment & %.4f & %.4f \\\\\n", average(runTimesCommit), stat.StdDev(runTimesCommit, nil))))
+	table.Write([]byte(fmt.Sprintf("  Check signature & %.3f & %.3f \\\\\n", average(runTimesSigCheck)/float64(1000000), stat.StdDev(runTimesSigCheck, nil)/float64(1000000))))
+	table.Write([]byte(fmt.Sprintf("  Single MPT Update & %.3f & %.3f \\\\\n", average(runTimesMPTUpdate)/float64(1000000), stat.StdDev(runTimesMPTUpdate, nil)/float64(1000000))))
+	table.Write([]byte(fmt.Sprintf("  Batch Commitment & %.3f & %.3f \\\\\n", average(runTimesCommit)/float64(1000000), stat.StdDev(runTimesCommit, nil)/float64(1000000))))
 
 	table.Write([]byte("\\hline\n"))
 
-	table.Write([]byte(fmt.Sprintf("  Proof Updates Generation & %.4f & %.4f \\\\\n", average(runTimesDeltaProof), stat.StdDev(runTimesDeltaProof, nil))))
-	table.Write([]byte(fmt.Sprintf("  Full Proof Generation & %.4f & %.4f \\\\\n", 0.0, 0.0)))
+	table.Write([]byte(fmt.Sprintf("  Proof Updates Generation & %.4f & %.4f \\\\\n", average(runTimesDeltaProof)/float64(1000000), stat.StdDev(runTimesDeltaProof, nil)/float64(1000000))))
+	table.Write([]byte(fmt.Sprintf("  Full Proof Generation & %.4f & %.4f \\\\\n", average(runTimesFullProof)/float64(1000000), stat.StdDev(runTimesFullProof, nil)/float64(1000000))))
 
 	table.Write([]byte("\\hline\n"))
 	table.Write([]byte("\\end{tabular}\n"))
@@ -173,6 +229,28 @@ func RunMicroBench() {
 	table.Write([]byte("\\end{table*}	\n"))
 	table.Close()
 
+	table, _ = os.Create("table_microbench.raw")
+	table.Write([]byte("Raw values for signature check:\n----\n"))
+	for _, m := range runTimesSigCheck {
+		table.Write([]byte(fmt.Sprintf("%f\n", m)))
+	}
+	table.Write([]byte("\n\nRaw values for mpt update:\n----\n"))
+	for _, m := range runTimesMPTUpdate {
+		table.Write([]byte(fmt.Sprintf("%f\n", m)))
+	}
+	table.Write([]byte("\n\nRaw values for commit:\n----\n"))
+	for _, m := range runTimesCommit {
+		table.Write([]byte(fmt.Sprintf("%f\n", m)))
+	}
+	table.Write([]byte("\n\nRaw values for delta proof:\n----\n"))
+	for _, m := range runTimesDeltaProof {
+		table.Write([]byte(fmt.Sprintf("%f\n", m)))
+	}
+	table.Write([]byte("\n\nRaw values for full proof:\n----\n"))
+	for _, m := range runTimesFullProof {
+		table.Write([]byte(fmt.Sprintf("%f\n", m)))
+	}
+	table.Close()
 	fmt.Printf("\rMicrobench: Done.                                  \n")
 
 }
