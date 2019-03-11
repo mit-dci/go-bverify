@@ -19,7 +19,7 @@ const (
 	MICROBENCH_TOTALLOGS  = 1000000
 	MICROBENCH_UPDATELOGS = 10000 // 1%
 	MICROBENCH_NUMCLIENTS = 100
-	MICROBENCH_RUNS       = 100
+	MICROBENCH_RUNS       = 50
 )
 
 func RunMicroBench() {
@@ -122,6 +122,9 @@ func RunMicroBench() {
 				start = time.Now()
 				processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
 				runTimesMPTUpdate[statsIdx] = float64(time.Since(start).Nanoseconds())
+			} else {
+				processor.(*server.ServerLogProcessor).VerifyAppendLog(sls)
+				processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
 			}
 		}
 
@@ -151,15 +154,7 @@ func RunMicroBench() {
 
 		fmt.Printf("\rMicrobench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
-		skipped := false
 		for j := 0; j < MICROBENCH_UPDATELOGS; j++ {
-			if skipped {
-				fmt.Printf("\nSKIPPED AND STILL HERE!\n")
-			}
-			if subset[j] == randLogId {
-				j = MICROBENCH_UPDATELOGS
-				skipped = true
-			}
 			logIdIdx[subset[j]]++
 			copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
 			srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
@@ -183,15 +178,7 @@ func RunMicroBench() {
 
 		fmt.Printf("\rMicrobench: Running benchmark 3/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
-		skipped := false
 		for j := 0; j < MICROBENCH_UPDATELOGS*10; j++ {
-			if skipped {
-				fmt.Printf("\nSKIPPED AND STILL HERE!\n")
-			}
-			if subset[j] == randLogId {
-				j = MICROBENCH_UPDATELOGS * 10
-				skipped = true
-			}
 			logIdIdx[subset[j]]++
 			copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
 			srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
