@@ -221,7 +221,7 @@ func (srv *Server) Commit() error {
 }
 
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
-	return mpt.NewPartialMPTIncludingKeys(srv.fullmpt, keys)
+	return mpt.NewPartialMPTIncludingKeys(srv.LastCommitMpt, keys)
 }
 
 func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {
