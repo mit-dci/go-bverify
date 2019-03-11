@@ -181,7 +181,7 @@ func RunMicroBench() {
 		rand.Read(statement)
 		randLogId := mathrand.Intn(MICROBENCH_TOTALLOGS)
 
-		fmt.Printf("\rMicrobench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
+		fmt.Printf("\rMicrobench: Running benchmark 3/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
 		skipped := false
 		for j := 0; j < MICROBENCH_UPDATELOGS*10; j++ {
