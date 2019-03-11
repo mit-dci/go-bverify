@@ -12,10 +12,15 @@ func main() {
 	runProofSizePerLog := flag.Bool("proofsizeperlog", false, "Run proof size benchmark")
 	runClientUpdate := flag.Bool("clientupdate", false, "Run client update benchmark")
 	runClientDeltaSize := flag.Bool("clientdelta", false, "Run client delta size benchmark")
+	runMicroBench := flag.Bool("microbench", false, "Run commitment server microbenchmark")
 
 	flag.Parse()
 	if *runProofSize || *runAll {
 		benchmarks.RunProofSizeBench()
+	}
+
+	if *runMicroBench || *runAll {
+		benchmarks.RunMicroBench()
 	}
 
 	if *runClientUpdate || *runAll {

@@ -149,18 +149,10 @@ func (c *Client) UnsubscribeProofUpdates() error {
 }
 
 func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
-	l := wire.NewSignedLogStatement(idx, logId, statement)
-	hash := fastsha256.Sum256(l.Statement.Bytes())
-	sig, err := c.key.Sign(hash[:])
-
+	l, err := c.SignedAppendLog(idx, logId, statement)
 	if err != nil {
 		return err
 	}
-	csig, err := sig64.SigCompress(sig.Serialize())
-	if err != nil {
-		return err
-	}
-	l.Signature = csig
 
 	err = c.conn.WriteMessage(wire.MessageTypeAppendLog, l.Bytes())
 	if err != nil {
@@ -170,4 +162,19 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 	// Wait for ack
 	<-c.ack
 	return nil
+}
+
+func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (*wire.SignedLogStatement, error) {
+	l := wire.NewSignedLogStatement(idx, logId, statement)
+	hash := fastsha256.Sum256(l.Statement.Bytes())
+	sig, err := c.key.Sign(hash[:])
+	if err != nil {
+		return nil, err
+	}
+	csig, err := sig64.SigCompress(sig.Serialize())
+	if err != nil {
+		return nil, err
+	}
+	l.Signature = csig
+	return l, nil
 }

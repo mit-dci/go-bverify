@@ -92,6 +92,14 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 		return lp.ProcessRequestProof(pm)
 	}
 
+	if t == wire.MessageTypeRequestDeltaProof {
+		pm, err := wire.NewRequestProofMessageFromBytes(m)
+		if err != nil {
+			return err
+		}
+		return lp.ProcessRequestDeltaProof(pm)
+	}
+
 	if t == wire.MessageTypeSubscribeProofUpdates {
 		lp.autoUpdates = true
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
@@ -124,13 +132,38 @@ func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage)
 		}
 	}
 
-	proof, err := mpt.NewPartialMPTIncludingKeys(lp.server.LastCommitMpt, keys)
+	proof, err := lp.server.GetProofForKeys(keys)
 	if err != nil {
 		return err
 	}
 	lp.conn.WriteMessage(wire.MessageTypeProof, proof.Bytes())
 	return nil
 
+}
+
+func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMessage) error {
+	keys := make([][]byte, len(msg.LogIDs))
+	// If we didn't receive any keys as parameter, assume all
+	// logs the client created or modified
+	if len(keys) == 0 {
+		keys = make([][]byte, len(lp.logIDs))
+		for i, key := range lp.logIDs {
+			keys[i] = make([]byte, 32)
+			copy(keys[i], key[:])
+		}
+	} else {
+		for i, key32 := range msg.LogIDs {
+			keys[i] = make([]byte, 32)
+			copy(keys[i], key32[:])
+		}
+	}
+
+	proof, err := lp.server.GetDeltaProofForKeys(keys)
+	if err != nil {
+		return err
+	}
+	lp.conn.WriteMessage(wire.MessageTypeDeltaProof, proof.Bytes())
+	return nil
 }
 
 func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {
@@ -160,6 +193,20 @@ func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStateme
 }
 
 func (lp *ServerLogProcessor) ProcessAppendLog(sls *wire.SignedLogStatement) error {
+	err := lp.VerifyAppendLog(sls)
+	if err != nil {
+		return err
+	}
+
+	err = lp.CommitAppendLog(sls)
+	if err != nil {
+		return err
+	}
+
+	return lp.AckAppendLog(sls)
+}
+
+func (lp *ServerLogProcessor) VerifyAppendLog(sls *wire.SignedLogStatement) error {
 	pk, err := lp.server.GetPubKeyForLogID(sls.Statement.LogID)
 	if err != nil {
 		return err
@@ -169,16 +216,20 @@ func (lp *ServerLogProcessor) ProcessAppendLog(sls *wire.SignedLogStatement) err
 	if err != nil {
 		return err
 	}
-
+	return nil
+}
+func (lp *ServerLogProcessor) CommitAppendLog(sls *wire.SignedLogStatement) error {
 	witness := fastsha256.Sum256(sls.Bytes())
-	err = lp.server.RegisterLogStatement(sls.Statement.LogID, sls.Statement.Index, witness[:])
+	err := lp.server.RegisterLogStatement(sls.Statement.LogID, sls.Statement.Index, witness[:])
 	if err != nil {
 		return err
 	}
-
-	lp.SubscribeToLog(sls.Statement.LogID)
-	lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
 	return nil
+}
+
+func (lp *ServerLogProcessor) AckAppendLog(sls *wire.SignedLogStatement) error {
+	lp.SubscribeToLog(sls.Statement.LogID)
+	return lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
 }
 
 func (lp *ServerLogProcessor) SubscribeToLog(logID [32]byte) {

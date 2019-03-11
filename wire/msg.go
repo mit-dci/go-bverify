@@ -16,6 +16,8 @@ const (
 	MessageTypeProof                   MessageType = 0x07
 	MessageTypeSubscribeProofUpdates   MessageType = 0x08
 	MessageTypeUnsubscribeProofUpdates MessageType = 0x09
+	MessageTypeRequestDeltaProof       MessageType = 0x10
+	MessageTypeDeltaProof              MessageType = 0x11
 )
 
 type RequestProofMessage struct {

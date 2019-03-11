@@ -37,10 +37,15 @@ type clientUpdateBenchResultCollection struct {
 	result               []clientUpdateBenchResult
 }
 
-func newDummyClient(srv *server.Server) net.Conn {
+func newDummyClientAndProcessor(srv *server.Server) (net.Conn, server.LogProcessor) {
 	s, c := net.Pipe()
 	p := server.NewLogProcessor(s, srv)
 	go p.Process()
+	return c, p
+}
+
+func newDummyClient(srv *server.Server) net.Conn {
+	c, _ := newDummyClientAndProcessor(srv)
 	return c
 }
 

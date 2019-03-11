@@ -29,6 +29,9 @@ type Server struct {
 	// Cache of the last root committed to the blockchain
 	lastCommitment [32]byte
 
+	// Cache of the last delta for on-demand proof deltas
+	lastDelta *mpt.DeltaMPT
+
 	// Address (port) to run the server on
 	addr string
 
@@ -170,6 +173,12 @@ func (srv *Server) Stop() {
 	srv.listener.Close()
 }
 
+func (srv *Server) Commitment() []byte {
+	srv.mptLock.Lock()
+	defer srv.mptLock.Unlock()
+	return srv.fullmpt.Commitment()
+}
+
 func (srv *Server) Commit() error {
 	srv.mptLock.Lock()
 	defer srv.mptLock.Unlock()
@@ -191,13 +200,13 @@ func (srv *Server) Commit() error {
 		}
 	}
 
-	delta, _ := mpt.NewDeltaMPT(srv.fullmpt)
+	srv.lastDelta, _ = mpt.NewDeltaMPT(srv.fullmpt)
 	srv.processorsLock.Lock()
 	var wg sync.WaitGroup
 	for _, pr := range srv.processors {
 		wg.Add(1)
 		go func(proc LogProcessor) {
-			proc.SendProofs(delta)
+			proc.SendProofs(srv.lastDelta)
 			wg.Done()
 		}(pr)
 	}
@@ -213,6 +222,10 @@ func (srv *Server) Commit() error {
 
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
 	return mpt.NewPartialMPTIncludingKeys(srv.fullmpt, keys)
+}
+
+func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {
+	return srv.lastDelta.GetUpdatesForKeys(keys)
 }
 
 func (srv *Server) TreeSize() int {
