@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	CLIENTDELTASIZE_TOTALLOGS = 10000000
-	CLIENTDELTASIZE_SAMPLES   = 20
+	CLIENTDELTASIZE_TOTALLOGS = 1000000
+	CLIENTDELTASIZE_SAMPLES   = 10
 )
 
 // RunClientDeltaSizeBench will create 1M logs and then
@@ -73,16 +73,10 @@ func RunClientDeltaSizeBench() {
 	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
 	logId := [32]byte{}
-	changeLogs := []int{}
 
-	// Increase the number of changing logs by a factor of 10 every time
-	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100000; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs *= 10 {
-		changeLogs = append(changeLogs, numChangeLogs)
-	}
-
-	for _, numChangeLogs := range changeLogs {
+	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_TOTALLOGS / 100 {
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
-			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]              ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES, len(logIdxsToChange))
+			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]            ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES)
 			// pick a changing random subset of logs every run
 			var subset = logIdxsToChange[:]
 			if CLIENTDELTASIZE_TOTALLOGS > numChangeLogs {
@@ -90,11 +84,11 @@ func RunClientDeltaSizeBench() {
 				subset = logIdxsToChange[startIdx : startIdx+numChangeLogs]
 			}
 
+			statement := make([]byte, 32)
+			rand.Read(statement)
 			for j := 0; j < numChangeLogs; j++ {
 				logIdIdx[subset[j]]++
 				copy(logId[:], logIds[subset[j]*32:subset[j]*32+32])
-				statement := make([]byte, 32)
-				rand.Read(statement)
 
 				err = srv.RegisterLogStatement(logId, logIdIdx[subset[j]], statement)
 				if err != nil {
