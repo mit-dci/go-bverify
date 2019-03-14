@@ -15,6 +15,7 @@ docker cp "bverifybench-$1":/app ./tmp
 set -e
 mkdir -p "./out"
 cp ./tmp/*.tex "./out"
+cp ./tmp/*.raw "./out"
 rm -rf ./tmp
 docker rm "bverifybench-$1" > /dev/null 2> /dev/null
 echo "Done"
