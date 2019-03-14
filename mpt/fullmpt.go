@@ -207,6 +207,8 @@ func deleteHelper(key []byte, currentBitIndex int, currentNode Node, isRoot bool
 // infeasible to find a different set of (key, value) mappings
 // with the same commitment.
 func (fm *FullMPT) Commitment() []byte {
+	
+	
 	return fm.root.GetHash()
 }
 

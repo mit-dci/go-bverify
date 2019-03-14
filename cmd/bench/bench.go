@@ -13,10 +13,16 @@ func main() {
 	runClientUpdate := flag.Bool("clientupdate", false, "Run client update benchmark")
 	runClientDeltaSize := flag.Bool("clientdelta", false, "Run client delta size benchmark")
 	runMicroBench := flag.Bool("microbench", false, "Run commitment server microbenchmark")
+	runServerBench := flag.Bool("serverbench", false, "Run commitment server in benchmark mode")
+	serverBenchPort := flag.Int("serverbenchport", 9100, "Port to run the benchmark server on")
 
 	flag.Parse()
 	if *runProofSize || *runAll {
 		benchmarks.RunProofSizeBench()
+	}
+
+	if *runServerBench || *runAll {
+		benchmarks.RunServerBench(*serverBenchPort)
 	}
 
 	if *runMicroBench || *runAll {

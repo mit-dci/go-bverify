@@ -38,8 +38,8 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 	return cli, nil
 }
 
-func NewClient(key []byte) (*Client, error) {
-	c, err := net.Dial("tcp", "127.0.0.1:9100")
+func NewClient(key []byte, addr string) (*Client, error) {
+	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}

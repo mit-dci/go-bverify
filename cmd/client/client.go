@@ -2,8 +2,10 @@ package main
 
 import (
 	"crypto/rand"
+	"flag"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mit-dci/go-bverify/client"
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
@@ -15,13 +17,17 @@ type TestClient struct {
 }
 
 func main() {
-	// Connect 250 clients
 	var err error
 
-	cli := make([]*TestClient, 2500)
+	hostName := flag.String("host", "localhost", "Host to connect to")
+	hostPort := flag.Int("port", 9100, "Port to connect to")
+	clients := flag.Int("clients", 250, "Number of clients to start")
+	logs := flag.Int("logs", 1000, "Number of logs to write per client")
+	flag.Parse()
 
-	for i := 0; i < 2500; i++ {
-		fmt.Printf("Constructing client %d\n", i)
+	cli := make([]*TestClient, *clients)
+
+	for i := 0; i < *clients; i++ {
 		key := make([]byte, 32)
 		n, err := rand.Read(key)
 		if err != nil {
@@ -30,18 +36,15 @@ func main() {
 		if n != 32 {
 			panic("No 32 byte key could be read from random")
 		}
-		fmt.Printf("Created key for client %d\n", i)
-		cl, err := client.NewClient(key)
+		cl, err := client.NewClient(key, fmt.Sprintf("%s:%d", *hostName, *hostPort))
 		if err != nil {
 			panic(err)
 		}
 
-		fmt.Printf("Assigning cli[%d]\n", i)
 		cli[i] = &TestClient{cli: cl}
-		fmt.Printf("Assigned cli[%d]\n", i)
 	}
 
-	fmt.Printf("Created 2500 clients. Starting their logs")
+	fmt.Printf("\nCreated %d clients. Starting their logs", *clients)
 
 	var wg sync.WaitGroup
 	for _, c := range cli {
@@ -54,8 +57,8 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Printf("Started 2500 logs. Adding 10k statements per log")
-	for i := uint64(1); i < 10000; i++ {
+	fmt.Printf("\nStarted %d logs. Adding %d statements per log", *clients, *logs)
+	for i := uint64(1); i < uint64(*logs); i++ {
 		logHash := fastsha256.Sum256([]byte(fmt.Sprintf("Hello world %d", i)))
 		for _, c := range cli {
 			wg.Add(1)
@@ -69,4 +72,22 @@ func main() {
 		}
 		wg.Wait()
 	}
+
+	fmt.Printf("\nAdded all statements, waiting for the server to commit")
+
+	time.Sleep(time.Second * 15) // Wait for the server to process the commitments
+
+	fmt.Printf("\nRequesting proofs")
+	for _, c := range cli {
+		wg.Add(1)
+		go func(c *TestClient) {
+			defer wg.Done()
+			_, err := c.cli.RequestProof([][32]byte{})
+			if err != nil {
+				panic(err)
+			}
+		}(c)
+	}
+	wg.Wait()
+	fmt.Printf("Done!")
 }

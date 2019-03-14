@@ -42,6 +42,10 @@ func NewInteriorNodeWithCachedHash(leftChild, rightChild Node, hash []byte) (*In
 	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: false, hash: hash}, nil
 }
 
+func (i *InteriorNode) CalculateAllHashes() {
+
+}
+
 // GetHash is the implementation of Node.GetHash
 func (i *InteriorNode) GetHash() []byte {
 	if i.recalculateHash {
