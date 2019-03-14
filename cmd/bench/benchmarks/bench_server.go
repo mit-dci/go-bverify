@@ -117,6 +117,8 @@ func RunServerBench(port int) {
 		go BenchmarkProxy(conn, srv)
 	}
 
+	operationNames := []string{"Create new log", "Add log statement", "", "", "", "Request Full Proof", "", "", "", "", "", ""}
+
 	fmt.Printf("\nServer benchmark: Writing output                                 ")
 
 	table, _ := os.Create("table_serversimulation.tex")
@@ -130,10 +132,10 @@ func RunServerBench(port int) {
 	for i := range operationTimes {
 		totalTime := atomic.LoadInt64(&(operationTimes[i]))
 		totalCount := atomic.LoadInt64(&(operationCounts[i]))
-		if totalCount > 0 {
+		if totalCount > 0 && operationNames[i] != "" {
 			avgTime := float64(totalTime) / float64(totalCount) / float64(1000000)
 			opsSec := float64(totalCount) / (float64(operationRunningTime[i]) / float64(1000000000)) //server running time is in nanosec, convert to sec first
-			table.Write([]byte(fmt.Sprintf("  %d & %.3f & %.3f \\\\\n", i, avgTime, opsSec)))
+			table.Write([]byte(fmt.Sprintf("  %s & %.3f & %.3f \\\\\n", operationNames[i], avgTime, opsSec)))
 		}
 	}
 
