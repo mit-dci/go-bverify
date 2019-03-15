@@ -15,10 +15,20 @@ func main() {
 	runMicroBench := flag.Bool("microbench", false, "Run commitment server microbenchmark")
 	runServerBench := flag.Bool("serverbench", false, "Run commitment server in benchmark mode")
 	serverBenchPort := flag.Int("serverbenchport", 9100, "Port to run the benchmark server on")
+	runClientBench := flag.Bool("clientbench", false, "Run commitment server in benchmark mode")
+	clientBenchHost := flag.String("clientbenchhost", "localhost", "Host running the benchmark server")
+	clientBenchPort := flag.Int("clientbenchport", 9100, "Port to connect to the benchmark server on")
+	clientBenchClients := flag.Int("clientbenchclients", 1000, "Number of clients to emulate")
+	clientBenchLogs := flag.Int("clientbenchlogs", 1000, "Number of logs to write per client")
+	clientBenchStatements := flag.Int("clientbenchstatements", 100, "Number of statements to write to each log")
 
 	flag.Parse()
 	if *runProofSize || *runAll {
 		benchmarks.RunProofSizeBench()
+	}
+
+	if *runClientBench || *runAll {
+		benchmarks.RunClientBench(*clientBenchHost, *clientBenchPort, *clientBenchClients, *clientBenchLogs, *clientBenchStatements)
 	}
 
 	if *runServerBench || *runAll {
