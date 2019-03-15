@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/mit-dci/go-bverify/utils"
+
 	"github.com/mit-dci/go-bverify/mpt"
+	"github.com/mit-dci/go-bverify/wallet"
 )
 
 type Server struct {
@@ -39,6 +43,8 @@ type Server struct {
 	processors     []LogProcessor
 	processorsLock sync.Mutex
 
+	wallet *wallet.Wallet
+
 	// channel to stop
 	stop  chan bool
 	ready chan bool
@@ -50,7 +56,14 @@ type Server struct {
 }
 
 func NewServer(addr string) (*Server, error) {
+	var err error
+	os.MkdirAll(utils.DataDirectory(), 0700)
+
 	srv := new(Server)
+	srv.wallet, err = wallet.NewWallet()
+	if err != nil {
+		return nil, err
+	}
 	srv.AutoCommit = true
 	srv.KeepCommitmentTree = true
 	srv.addr = addr
@@ -215,6 +228,8 @@ func (srv *Server) Commit() error {
 	srv.processorsLock.Unlock()
 
 	srv.fullmpt.Reset()
+
+	srv.wallet.Commit(commitment[:])
 
 	commitment = nil
 	return nil
