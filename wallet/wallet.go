@@ -6,42 +6,42 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"time"
 
-	"github.com/adiabat/bech32"
-
-	"github.com/btcsuite/btcd/wire"
-
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-
-	"github.com/tidwall/buntdb"
-
-	"github.com/btcsuite/btcutil"
-
+	"github.com/mit-dci/go-bverify/bitcoin/bech32"
+	"github.com/mit-dci/go-bverify/bitcoin/btcutil"
+	"github.com/mit-dci/go-bverify/bitcoin/chaincfg"
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
+	"github.com/mit-dci/go-bverify/bitcoin/rpcclient"
+	"github.com/mit-dci/go-bverify/bitcoin/txscript"
+	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/utils"
-
-	"path"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/tidwall/buntdb"
 )
+
+const MINOUTPUT uint64 = 1000
 
 type Wallet struct {
 	// The key to commit to the blockchain with
-	privateKey  *btcec.PrivateKey
-	pubKey      *btcec.PublicKey
-	pubKeyHash  [20]byte
-	utxos       []Utxo
-	db          *buntdb.DB
-	rpcClient   *rpcclient.Client
-	activeChain ChainIndex
+	privateKey        *btcec.PrivateKey
+	pubKey            *btcec.PublicKey
+	pubKeyHash        [20]byte
+	utxos             []Utxo
+	db                *buntdb.DB
+	rpcClient         *rpcclient.Client
+	activeChain       ChainIndex
+	newBlockListeners []chan *wire.MsgBlock
+	params            *chaincfg.Params
 }
 
-func NewWallet() (*Wallet, error) {
+func NewWallet(params *chaincfg.Params, rescanBlocks int) (*Wallet, error) {
 	var err error
 	w := new(Wallet)
-	genesis, _ := chainhash.NewHashFromStr("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")
-	w.activeChain = ChainIndex{genesis}
+	w.params = params
+	w.activeChain = ChainIndex{w.params.GenesisHash}
 	keyFile := path.Join(utils.DataDirectory(), "privkey.hex")
 	key32 := [32]byte{}
 	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
@@ -68,13 +68,21 @@ func NewWallet() (*Wallet, error) {
 	w.loadStuff()
 	w.readChainState()
 
-	fmt.Printf("Wallet initialized. At height %d - Balance %d - Address is: %s\n", len(w.activeChain), w.Balance(), w.address())
+	if rescanBlocks > 0 {
+		if len(w.activeChain) < rescanBlocks {
+			rescanBlocks = len(w.activeChain)
+		}
+		w.activeChain = w.activeChain[:len(w.activeChain)-rescanBlocks]
+	}
+
+	w.newBlockListeners = make([]chan *wire.MsgBlock, 0)
+	logging.Debugf("Wallet initialized. At height %d - Balance %d - Address is: %s\n", len(w.activeChain), w.Balance(), w.address())
 
 	go w.BlockLoop()
 
 	// TODO: make this configurable
 	connCfg := &rpcclient.ConnConfig{
-		Host:         "localhost:18443",
+		Host:         "localhost:18332",
 		User:         "bverify",
 		Pass:         "bverify",
 		HTTPPostMode: true,
@@ -88,8 +96,12 @@ func NewWallet() (*Wallet, error) {
 	return w, nil
 }
 
+func (w *Wallet) AddNewBlockListener(blockChan chan *wire.MsgBlock) {
+	w.newBlockListeners = append(w.newBlockListeners, blockChan)
+}
+
 func (w *Wallet) address() string {
-	adr, _ := bech32.SegWitV0Encode("bcrt", w.pubKeyHash[:])
+	adr, _ := bech32.SegWitV0Encode(w.params.Bech32Prefix, w.pubKeyHash[:])
 	return adr
 }
 
@@ -103,12 +115,16 @@ func (w *Wallet) loadStuff() {
 	})
 }
 
+func (w *Wallet) HeightOfBlock(blockHash chainhash.Hash) int {
+	return w.activeChain.FindBlock(&blockHash)
+}
+
 func (w *Wallet) BlockLoop() {
 	for {
 		time.Sleep(time.Second * 5)
 		bestHash, err := w.rpcClient.GetBestBlockHash()
 		if err != nil {
-			fmt.Printf("Error getting best blockhash: %s\n", err.Error())
+			logging.Errorf("Error getting best blockhash: %s\n", err.Error())
 			continue
 		}
 
@@ -116,13 +132,15 @@ func (w *Wallet) BlockLoop() {
 			continue
 		}
 
+		logging.Debugf("Found new best hash, trying to attach to known chain")
+
 		hash, _ := chainhash.NewHash(bestHash.CloneBytes())
 		pendingBlockHashes := make([]*chainhash.Hash, 0)
 		startIndex := 0
 		for {
 			header, err := w.rpcClient.GetBlockHeader(hash)
 			if err != nil {
-				fmt.Printf("Error getting block header: %s\n", err.Error())
+				logging.Errorf("Error getting block header: %s\n", err.Error())
 				continue
 			}
 
@@ -131,30 +149,35 @@ func (w *Wallet) BlockLoop() {
 			hash = &header.PrevBlock
 			idx := w.activeChain.FindBlock(&header.PrevBlock)
 			if idx > -1 {
+				idx++
 				// We found a way to connect to our activeChain
 				// Remove all blocks after idx, if any
-				newChain := w.activeChain[:idx+1]
+				newChain := w.activeChain[:idx]
 				newChain = append(newChain, pendingBlockHashes...)
 				w.activeChain = newChain
 				startIndex = idx
 				break
+			}
+			if len(pendingBlockHashes)%1000 == 0 {
+				logging.Debugf("Pending hashes: %d", len(pendingBlockHashes))
 			}
 		}
 
 		for _, hash := range w.activeChain[startIndex:] {
 			block, err := w.rpcClient.GetBlock(hash)
 			if err != nil {
-				fmt.Printf("Error getting block: %s\n", err.Error())
+				logging.Errorf("Error getting block: %s\n", err.Error())
 				continue
 			}
 
 			err = w.processBlock(block)
 			if err != nil {
-				fmt.Printf("Error processing block: %s\n", err.Error())
+				logging.Errorf("Error processing block: %s\n", err.Error())
 				continue
 			}
 		}
 		w.persistChainState()
+
 	}
 }
 
@@ -194,13 +217,24 @@ func (w *Wallet) Balance() uint64 {
 }
 
 func (w *Wallet) processBlock(block *wire.MsgBlock) error {
+	for _, nbl := range w.newBlockListeners {
+		select {
+		case nbl <- block:
+		default:
+		}
+	}
+
 	for _, tx := range block.Transactions {
 		w.processTransaction(tx)
 	}
 
-	fmt.Printf("New block processed. Our balance is now %d", w.Balance())
+	logging.Debugf("New block processed. Our balance is now %d", w.Balance())
 
 	return nil
+}
+
+func (w *Wallet) Height() int {
+	return len(w.activeChain) - 1
 }
 
 func (w *Wallet) processTransaction(tx *wire.MsgTx) {
@@ -242,14 +276,26 @@ func (w *Wallet) markTxInputsAsSpent(tx *wire.MsgTx) {
 }
 
 func (w *Wallet) registerUtxo(utxo Utxo) {
-	w.utxos = append(w.utxos, utxo)
+	alreadyAtIdx := -1
+	for i, u := range w.utxos {
+		if utxo.TxHash.IsEqual(&u.TxHash) && utxo.Outpoint == u.Outpoint {
+			alreadyAtIdx = i
+		}
+	}
+
+	if alreadyAtIdx >= 0 {
+		w.utxos[alreadyAtIdx] = utxo
+	} else {
+		w.utxos = append(w.utxos, utxo)
+	}
+
 	err := w.db.Update(func(dtx *buntdb.Tx) error {
 		key := fmt.Sprintf("utxo-%s-%d", utxo.TxHash.String(), utxo.Outpoint)
 		_, _, err := dtx.Set(key, string(utxo.Bytes()), nil)
 		return err
 	})
 	if err != nil {
-		fmt.Printf("[Wallet] Error registering utxo: %s", err.Error())
+		logging.Errorf("[Wallet] Error registering utxo: %s", err.Error())
 	}
 }
 
@@ -285,18 +331,68 @@ func (w *Wallet) readChainState() {
 	w.activeChain = readIndex
 }
 
-func (w *Wallet) Commit(commitment []byte) ([]byte, error) {
+func (w *Wallet) FindUtxoFromTxIn(txi *wire.TxIn) (Utxo, error) {
+	for _, out := range w.utxos {
+		if txi.PreviousOutPoint.Hash.IsEqual(&out.TxHash) && txi.PreviousOutPoint.Index == out.Outpoint {
+			return out, nil
+		}
+	}
+	return Utxo{}, fmt.Errorf("Utxo not found")
+}
+
+func (w *Wallet) SignMyInputs(tx *wire.MsgTx) error {
+	// generate tx-wide hashCache for segwit stuff
+	// might not be needed (non-witness) but make it anyway
+	hCache := txscript.NewTxSigHashes(tx)
+	witStash := make([][][]byte, len(tx.TxIn))
+	for i, txi := range tx.TxIn {
+		utxo, err := w.FindUtxoFromTxIn(txi)
+		if err != nil {
+			continue
+		}
+
+		logging.Debugf("Signing input [%s / %d] with script [%x] and value [%d]", utxo.TxHash.String(), utxo.Outpoint, utxo.PkScript, utxo.Value)
+
+		witStash[i], err = txscript.WitnessSignature(tx, hCache, i,
+			int64(utxo.Value), utxo.PkScript, txscript.SigHashAll, w.privateKey, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	// swap sigs into sigScripts in txins
+	for i, txin := range tx.TxIn {
+		if witStash[i] != nil {
+			txin.Witness = witStash[i]
+			txin.SignatureScript = nil
+		}
+	}
+
+	return nil
+}
+
+func (w *Wallet) Commit(commitment []byte) ([]byte, []byte, error) {
 	tx := wire.NewMsgTx(1)
 	neededInputs := uint64(1000) // minfee
 
-	var scriptBuf bytes.Buffer
-	scriptBuf.WriteByte(0x6A) // OP_RETURN
-	scriptBuf.WriteByte(byte(len(commitment)))
-	scriptBuf.Write(commitment)
-	tx.AddTxOut(wire.NewTxOut(0, scriptBuf.Bytes()))
+	tx.AddTxOut(wire.NewTxOut(0, append([]byte{0x6A, byte(len(commitment))}, commitment...)))
 
-	w.AddInputsAndChange(tx, neededInputs)
+	err := w.AddInputsAndChange(tx, neededInputs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = w.SignMyInputs(tx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	txid, err := w.rpcClient.SendRawTransaction(tx, false)
-	return txid.CloneBytes(), err
+	if err != nil {
+		return nil, nil, err
+	}
+	var buf bytes.Buffer
+	tx.Serialize(&buf)
+
+	return txid.CloneBytes(), buf.Bytes(), nil
 }

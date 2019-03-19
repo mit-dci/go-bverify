@@ -2,17 +2,32 @@ package server
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
+	"path"
 	"sync"
-	"time"
 
-	"github.com/mit-dci/go-bverify/utils"
+	"github.com/mit-dci/go-bverify/bitcoin/chaincfg"
 
+	"github.com/tidwall/buntdb"
+
+	"github.com/mit-dci/go-bverify/bitcoin/blockchain"
+	"github.com/mit-dci/go-bverify/bitcoin/btcutil"
+	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/mpt"
+	"github.com/mit-dci/go-bverify/utils"
 	"github.com/mit-dci/go-bverify/wallet"
 )
+
+type ServerState struct {
+	LastCommitmentTree []byte
+	LastCommitment     []byte
+}
 
 type Server struct {
 	// Tracks the pubkeys for LogIDs
@@ -43,30 +58,122 @@ type Server struct {
 	processors     []LogProcessor
 	processorsLock sync.Mutex
 
+	// Wallet for keeping the funds used to commit to the chain
 	wallet *wallet.Wallet
 
+	// Database for keeping commitment history
+	commitmentDb *buntdb.DB
+
+	// In-memory array for keeping commitment history
+	commitments []*Commitment
+
 	// channel to stop
-	stop  chan bool
+	stop chan bool
+
+	// channel to indicate the server is up and running
 	ready chan bool
 
+	// Listener for clients
 	listener *net.TCPListener
 
-	AutoCommit         bool
+	// The commitment server automatically commits every time a block has been
+	// found. This can be turned off by switching this boolean off.
+	AutoCommit bool
+
+	// This can be used to switch off keeping a copy of the tree at the commitment
+	// point (used to generate client-side proofs) - this is needed for some tests
+	// and benchmarks where this is not needed to save time
 	KeepCommitmentTree bool
+
+	// Commit to the blockchain every N blocks (if AutoCommit enabled)
+	CommitEveryNBlocks int
+
+	// Last block that a commitment was initiated
+	LastCommitHeight int
+
+	// Blocks to rescan on startup
+	RescanBlocks int
 }
 
-func NewServer(addr string) (*Server, error) {
+type Commitment struct {
+	Commitment             [32]byte
+	TxID                   [32]byte
+	TriggeredAtBlockHeight int
+	IncludedInBlock        int
+	MerkleProof            []byte
+	RawTx                  []byte
+}
+
+func (c *Commitment) Bytes() []byte {
+	var b bytes.Buffer
+	b.Write(c.Commitment[:])
+
+	logging.Debugf("After commitment: [%x]", b.Bytes())
+
+	b.Write(c.TxID[:])
+
+	logging.Debugf("After TxID: [%x]", b.Bytes())
+
+	binary.Write(&b, binary.BigEndian, int32(c.TriggeredAtBlockHeight))
+	logging.Debugf("After TriggeredAtBlockHeight: [%x]", b.Bytes())
+	binary.Write(&b, binary.BigEndian, int32(c.IncludedInBlock))
+	logging.Debugf("After IncludedInBlock: [%x]", b.Bytes())
+	binary.Write(&b, binary.BigEndian, int32(len(c.MerkleProof)))
+	logging.Debugf("After len(c.MerkleProof): [%x]", b.Bytes())
+	b.Write(c.MerkleProof)
+	logging.Debugf("After MerkleProof: [%x]", b.Bytes())
+	b.Write(c.RawTx)
+	logging.Debugf("After RawTx: [%x]", b.Bytes())
+	return b.Bytes()
+}
+
+func CommitmentFromBytes(b []byte) *Commitment {
+	c := Commitment{}
+	logging.Debugf("Deserializing commitment: [%x]", b)
+	buf := bytes.NewBuffer(b)
+	copy(c.Commitment[:], buf.Next(32))
+	copy(c.TxID[:], buf.Next(32))
+	var i int32
+	binary.Read(buf, binary.BigEndian, &i)
+	c.TriggeredAtBlockHeight = int(i)
+	binary.Read(buf, binary.BigEndian, &i)
+	c.IncludedInBlock = int(i)
+
+	binary.Read(buf, binary.BigEndian, &i)
+	c.MerkleProof = buf.Next(int(i))
+	c.RawTx = buf.Bytes()
+	return &c
+}
+
+func NewCommitment(c, txid [32]byte, rawTx []byte, triggerHeight int) *Commitment {
+	return &Commitment{Commitment: c, TxID: txid, RawTx: rawTx, TriggeredAtBlockHeight: triggerHeight}
+}
+
+func NewServer(addr string, rescanBlocks int) (*Server, error) {
 	var err error
 	os.MkdirAll(utils.DataDirectory(), 0700)
 
+	logging.SetLogLevel(int(logging.LogLevelDebug))
+
+	logFilePath := path.Join(utils.DataDirectory(), "b_verify.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	defer logFile.Close()
+	logging.SetLogFile(logFile)
+
 	srv := new(Server)
-	srv.wallet, err = wallet.NewWallet()
+	srv.wallet, err = wallet.NewWallet(&chaincfg.TestNet3Params, rescanBlocks)
 	if err != nil {
 		return nil, err
 	}
 	srv.AutoCommit = true
 	srv.KeepCommitmentTree = true
+	srv.CommitEveryNBlocks = 6 // every hour (well, on bitcoin at least)
 	srv.addr = addr
+
+	srv.commitmentDb, err = buntdb.Open(path.Join(utils.DataDirectory(), "commitment.db"))
+	if err != nil {
+		return nil, err
+	}
 
 	if srv.addr == "" {
 		srv.addr = ":9100"
@@ -130,14 +237,13 @@ func (srv *Server) Run() error {
 		return err
 	}
 
-	commitTicker := time.NewTicker(time.Second * 5)
-	go func(s *Server) {
-		for range commitTicker.C {
-			if s.AutoCommit {
-				s.Commit()
-			}
-		}
-	}(srv)
+	newBlockChan := make(chan *wire.MsgBlock, 100)
+	srv.wallet.AddNewBlockListener(newBlockChan)
+	go srv.blockWatcher(newBlockChan)
+	srv.loadState()
+	srv.loadCommitments()
+
+	logging.Debugf("Server ready. Commitment: %x - Last committed at height: %d", srv.lastCommitment, srv.LastCommitHeight)
 
 	select {
 	case srv.ready <- true:
@@ -156,6 +262,149 @@ func (srv *Server) Run() error {
 		}
 		proc := NewLogProcessor(conn, srv)
 		go proc.Process()
+	}
+
+	return nil
+}
+
+func (srv *Server) blockWatcher(wc chan *wire.MsgBlock) {
+	for block := range wc {
+
+		// check if our last commit is in here
+		err := srv.processMerkleProofs(block)
+		if err != nil {
+			logging.Errorf("Error getting merkle proofs from block: %s", err.Error())
+		}
+
+		blocksSince := srv.wallet.Height() - srv.LastCommitHeight
+		if blocksSince >= srv.CommitEveryNBlocks {
+			logging.Debugf("Got new block, committing to chain!")
+			err := srv.Commit()
+			if err != nil {
+				logging.Errorf("Error while committing to chain: %s", err.Error())
+			}
+		} else {
+			logging.Debugf("Got new block, %d since last commit (commit every %d) - waiting", blocksSince, srv.CommitEveryNBlocks)
+		}
+	}
+}
+
+func (srv *Server) loadCommitments() {
+	srv.commitments = make([]*Commitment, 0)
+	err := srv.commitmentDb.View(func(tx *buntdb.Tx) error {
+		tx.AscendRange("", "commitment-", "commitmenu-", func(key, value string) bool {
+			srv.commitments = append(srv.commitments, CommitmentFromBytes([]byte(value)))
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		logging.Errorf("[Server] Error loading commitments: %s", err.Error())
+		return
+	}
+
+	logging.Debugf("Loaded %d previous commitments", len(srv.commitments))
+
+	for _, c := range srv.commitments {
+		if c.TriggeredAtBlockHeight > srv.LastCommitHeight {
+			srv.LastCommitHeight = c.TriggeredAtBlockHeight
+		}
+	}
+}
+
+func (srv *Server) saveCommitment(c *Commitment) {
+	alreadyAtIdx := -1
+	for i, sc := range srv.commitments {
+		if bytes.Equal(c.Commitment[:], sc.Commitment[:]) {
+			alreadyAtIdx = i
+		}
+	}
+
+	if c.TriggeredAtBlockHeight > srv.LastCommitHeight {
+		srv.LastCommitHeight = c.TriggeredAtBlockHeight
+	}
+
+	if alreadyAtIdx > -1 {
+		srv.commitments[alreadyAtIdx] = c
+	} else {
+		srv.commitments = append(srv.commitments, c)
+	}
+	err := srv.commitmentDb.Update(func(dtx *buntdb.Tx) error {
+		key := fmt.Sprintf("commitment-%x", c.Commitment)
+		_, _, err := dtx.Set(key, string(c.Bytes()), nil)
+		return err
+	})
+	if err != nil {
+		logging.Errorf("[Server] Error saving commitment: %s", err.Error())
+	}
+}
+
+func (srv *Server) getPendingCommitments() []*Commitment {
+	r := make([]*Commitment, 0)
+	for _, c := range srv.commitments {
+		if c.IncludedInBlock == 0 {
+			r = append(r, c)
+		}
+	}
+	return r
+}
+
+func (srv *Server) processMerkleProofs(block *wire.MsgBlock) error {
+	pending := srv.getPendingCommitments()
+	for _, c := range pending {
+		commitmentInBlock := false
+		for _, tx := range block.Transactions {
+			hash := tx.TxHash()
+			if bytes.Equal(hash.CloneBytes(), c.TxID[:]) {
+				commitmentInBlock = true
+				break
+			}
+		}
+
+		if commitmentInBlock {
+			merkleRoot := block.Header.MerkleRoot
+			txs := make([]*btcutil.Tx, len(block.Transactions))
+			for i, tx := range block.Transactions {
+				txs[i] = btcutil.NewTx(tx)
+			}
+			hashes := blockchain.BuildMerkleTreeStore(txs, false)
+
+			// sanity check
+			if !bytes.Equal(hashes[len(hashes)-1].CloneBytes(), merkleRoot.CloneBytes()) {
+				return fmt.Errorf("Merkle root from BuildMerkleTreeStore doesn't match")
+			}
+
+			// next, find the index of our txid
+			hashIdx := -1
+			for i, h := range hashes {
+				if bytes.Equal(h.CloneBytes(), c.TxID[:]) {
+					hashIdx = i
+					break
+				}
+			}
+
+			if hashIdx == -1 {
+				return fmt.Errorf("Did not find hash in merkle tree. This shouldn't happen")
+			}
+
+			treeHeight := utils.NextPowerOfTwo(uint64(len(block.Transactions)))
+			proof := utils.MerkleProof{Position: uint64(hashIdx), Hashes: make([][32]byte, treeHeight)}
+			for i := uint(0); i < treeHeight; i++ {
+				hash32 := [32]byte{}
+				copy(hash32[:], hashes[hashIdx^1][:])
+				proof.Hashes[i] = hash32
+				hashIdx = (hashIdx >> 1) | (1 << treeHeight)
+			}
+
+			// sanity check
+			if !proof.Check(c.TxID[:], merkleRoot.CloneBytes()) {
+				panic(fmt.Errorf("Merkle root doesn't match"))
+			}
+
+			c.MerkleProof = proof.Bytes()
+			c.IncludedInBlock = srv.wallet.HeightOfBlock(block.BlockHash())
+			srv.saveCommitment(c)
+		}
 	}
 
 	return nil
@@ -198,6 +447,7 @@ func (srv *Server) Commit() error {
 	commitment := srv.fullmpt.Commitment()
 	if bytes.Equal(srv.lastCommitment[:], commitment[:]) {
 		commitment = nil
+		logging.Debugf("No changes to commit")
 		return nil
 	}
 
@@ -229,9 +479,57 @@ func (srv *Server) Commit() error {
 
 	srv.fullmpt.Reset()
 
-	srv.wallet.Commit(commitment[:])
+	txID, rawTx, err := srv.wallet.Commit(commitment[:])
+	if err != nil {
+		return err
+	}
+
+	txID32 := [32]byte{}
+	comm32 := [32]byte{}
+	copy(txID32[:], txID)
+	copy(comm32[:], commitment)
+	c := NewCommitment(comm32, txID32, rawTx, srv.wallet.Height())
+	srv.saveCommitment(c)
+	logging.Debugf("Committed to chain: %x", txID)
+
+	srv.commitState()
 
 	commitment = nil
+	return nil
+}
+
+func (srv *Server) commitState() error {
+	commitState := ServerState{}
+	commitState.LastCommitmentTree = srv.LastCommitMpt.Bytes()
+
+	stateBytes, err := json.Marshal(commitState)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(path.Join(utils.DataDirectory(), "serverstate.hex"), stateBytes, 0600)
+}
+
+func (srv *Server) loadState() error {
+	b, err := ioutil.ReadFile(path.Join(utils.DataDirectory(), "serverstate.hex"))
+	if err != nil {
+		if err != os.ErrNotExist {
+			return err
+		} else {
+			return nil
+		}
+	}
+
+	commitState := ServerState{}
+	json.Unmarshal(b, &commitState)
+
+	srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
+	if err != nil {
+		return err
+	}
+
+	copy(srv.lastCommitment[:], srv.LastCommitMpt.Commitment())
+
 	return nil
 }
 
@@ -241,6 +539,11 @@ func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
 
 func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {
 	return srv.lastDelta.GetUpdatesForKeys(keys)
+}
+
+func (srv *Server) GetChainProof(commitment [32]byte) ([][33]byte, error) {
+	// TODO
+	return nil, nil
 }
 
 func (srv *Server) TreeSize() int {

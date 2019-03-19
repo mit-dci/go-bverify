@@ -1,10 +1,15 @@
 package main
 
 import (
+	"flag"
+
 	"github.com/mit-dci/go-bverify/server"
 )
 
 func main() {
-	srv, _ := server.NewServer(":9100")
+	rescanBlocks := flag.Int("rescan", 0, "Rescan this number of blocks on startup")
+	flag.Parse()
+
+	srv, _ := server.NewServer(":9100", *rescanBlocks)
 	srv.Run()
 }

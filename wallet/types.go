@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 )
 
 type Utxo struct {
@@ -30,6 +30,7 @@ func UtxoFromBytes(b []byte) Utxo {
 	u.TxHash = *hash
 	binary.Read(buf, binary.BigEndian, &u.Outpoint)
 	binary.Read(buf, binary.BigEndian, &u.Value)
+	u.PkScript = make([]byte, buf.Len())
 	copy(u.PkScript, buf.Bytes())
 	return u
 }

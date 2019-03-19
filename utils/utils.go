@@ -3,19 +3,23 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"math/big"
 	"os"
 	"path"
 	"runtime"
 	"strings"
 
-	"github.com/adiabat/bech32"
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/mit-dci/go-bverify/bitcoin/bech32"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/mit-dci/go-bverify/bitcoin/txscript"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
+	"github.com/mit-dci/go-bverify/bitcoin/wire"
+
+	"github.com/mit-dci/go-bverify/bitcoin/btcutil"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
+	"github.com/mit-dci/go-bverify/logging"
 )
 
 const APP_NAME = "B_Verify"
@@ -62,6 +66,17 @@ func DataDirectory() string {
 	return ""
 }
 
+func ClientDataDirectory() string {
+	if runtime.GOOS == "windows" {
+		return path.Join(os.Getenv("APPDATA"), APP_NAME+" Client")
+	} else if runtime.GOOS == "darwin" {
+		return path.Join(os.Getenv("HOME"), "Library", "Application Support", APP_NAME+" Client")
+	} else if runtime.GOOS == "linux" {
+		return path.Join(os.Getenv("HOME"), fmt.Sprintf(".%s", strings.ToLower(APP_NAME+"_client")))
+	}
+	return ""
+}
+
 func KeyHashFromPkScript(pkscript []byte) []byte {
 	// match p2wpkh
 	if len(pkscript) == 22 && pkscript[0] == 0x00 && pkscript[1] == 0x14 {
@@ -86,7 +101,7 @@ func PrintTx(tx *wire.MsgTx) {
 	var buf bytes.Buffer
 
 	tx.Serialize(&buf)
-	fmt.Printf("TX: %x\n", buf.Bytes())
+	logging.Debugf("TX: %x\n", buf.Bytes())
 }
 
 func DirectWPKHScriptFromPKH(pkh [20]byte) []byte {
@@ -121,4 +136,24 @@ func DirectWPKHScriptFromAddress(adr string) ([]byte, error) {
 	}
 	copy(pubkeyHash[:], decoded[2:]) // skip version and pushdata byte returned by SegWitAddressDecode
 	return DirectWPKHScriptFromPKH(pubkeyHash), nil
+}
+
+func NextPowerOfTwo(n uint64) (e uint) {
+	for ; (1 << e) < n; e++ {
+	}
+	return
+}
+
+// HashToBig converts a chainhash.Hash into a big.Int that can be used to
+// perform math comparisons.
+func HashToBig(hash *chainhash.Hash) *big.Int {
+	// A Hash is in little-endian, but the big package wants the bytes in
+	// big-endian, so reverse them.
+	buf := *hash
+	blen := len(buf)
+	for i := 0; i < blen/2; i++ {
+		buf[i], buf[blen-1-i] = buf[blen-1-i], buf[i]
+	}
+
+	return new(big.Int).SetBytes(buf[:])
 }

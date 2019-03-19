@@ -4,90 +4,59 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
-	"sync"
-	"time"
+	"io/ioutil"
+	"os"
+	"path"
 
 	"github.com/mit-dci/go-bverify/client"
-	"github.com/mit-dci/go-bverify/crypto/fastsha256"
+	"github.com/mit-dci/go-bverify/logging"
+	"github.com/mit-dci/go-bverify/utils"
 )
-
-type TestClient struct {
-	cli   *client.Client
-	logID [32]byte
-}
 
 func main() {
 	var err error
 
 	hostName := flag.String("host", "localhost", "Host to connect to")
 	hostPort := flag.Int("port", 9100, "Port to connect to")
-	clients := flag.Int("clients", 250, "Number of clients to start")
-	logs := flag.Int("logs", 1000, "Number of logs to write per client")
 	flag.Parse()
 
-	cli := make([]*TestClient, *clients)
+	os.MkdirAll(utils.ClientDataDirectory(), 0700)
 
-	for i := 0; i < *clients; i++ {
-		key := make([]byte, 32)
-		n, err := rand.Read(key)
+	logging.SetLogLevel(int(logging.LogLevelDebug))
+
+	logFilePath := path.Join(utils.ClientDataDirectory(), "b_verify_client.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	defer logFile.Close()
+	logging.SetLogFile(logFile)
+
+	// generate key
+	keyFile := path.Join(utils.ClientDataDirectory(), "privkey.hex")
+	key32 := [32]byte{}
+	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
+		rand.Read(key32[:])
+		ioutil.WriteFile(keyFile, key32[:], 0600)
+	} else if err != nil {
+		panic(err)
+	} else {
+		key, err := ioutil.ReadFile(keyFile)
 		if err != nil {
 			panic(err)
 		}
-		if n != 32 {
-			panic("No 32 byte key could be read from random")
-		}
-		cl, err := client.NewClient(key, fmt.Sprintf("%s:%d", *hostName, *hostPort))
-		if err != nil {
-			panic(err)
-		}
-
-		cli[i] = &TestClient{cli: cl}
+		copy(key32[:], key)
 	}
 
-	fmt.Printf("\nCreated %d clients. Starting their logs", *clients)
-
-	var wg sync.WaitGroup
-	for _, c := range cli {
-		wg.Add(1)
-		go func(c *TestClient) {
-			defer wg.Done()
-			logHash := fastsha256.Sum256([]byte("Hello world"))
-			c.logID, err = c.cli.StartLog(logHash[:])
-		}(c)
-	}
-	wg.Wait()
-
-	fmt.Printf("\nStarted %d logs. Adding %d statements per log", *clients, *logs)
-	for i := uint64(1); i < uint64(*logs); i++ {
-		logHash := fastsha256.Sum256([]byte(fmt.Sprintf("Hello world %d", i)))
-		for _, c := range cli {
-			wg.Add(1)
-			go func(c *TestClient) {
-				defer wg.Done()
-				err = c.cli.AppendLog(i, c.logID, logHash[:])
-				if err != nil {
-					panic(err)
-				}
-			}(c)
-		}
-		wg.Wait()
+	logging.Debugf("Starting new client and connecting to %s:%d...", *hostName, *hostPort)
+	cli, err := client.NewClient(key32[:], fmt.Sprintf("%s:%d", *hostName, *hostPort))
+	if err != nil {
+		panic(err)
 	}
 
-	fmt.Printf("\nAdded all statements, waiting for the server to commit")
-
-	time.Sleep(time.Second * 15) // Wait for the server to process the commitments
-
-	fmt.Printf("\nRequesting proofs")
-	for _, c := range cli {
-		wg.Add(1)
-		go func(c *TestClient) {
-			defer wg.Done()
-			_, err := c.cli.RequestProof([][32]byte{})
-			if err != nil {
-				panic(err)
-			}
-		}(c)
+	logging.Debugf("Connected, starting SPV connection")
+	err = cli.StartSPV()
+	if err != nil {
+		panic(err)
 	}
-	wg.Wait()
-	fmt.Printf("Done!")
+
+	logging.Debugf("Starting receive loop")
+	cli.ReceiveLoop()
 }

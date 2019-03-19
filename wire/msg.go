@@ -7,17 +7,21 @@ import (
 type MessageType byte
 
 const (
-	MessageTypeCreateLog               MessageType = 0x01
-	MessageTypeAppendLog               MessageType = 0x02
-	MessageTypeAck                     MessageType = 0x03
-	MessageTypeError                   MessageType = 0x04
-	MessageTypeProofUpdate             MessageType = 0x05
-	MessageTypeRequestProof            MessageType = 0x06
-	MessageTypeProof                   MessageType = 0x07
-	MessageTypeSubscribeProofUpdates   MessageType = 0x08
-	MessageTypeUnsubscribeProofUpdates MessageType = 0x09
-	MessageTypeRequestDeltaProof       MessageType = 0x0A
-	MessageTypeDeltaProof              MessageType = 0x0B
+	MessageTypeCreateLog                MessageType = 0x01
+	MessageTypeAppendLog                MessageType = 0x02
+	MessageTypeAck                      MessageType = 0x03
+	MessageTypeError                    MessageType = 0x04
+	MessageTypeProofUpdate              MessageType = 0x05
+	MessageTypeRequestProof             MessageType = 0x06
+	MessageTypeProof                    MessageType = 0x07
+	MessageTypeSubscribeProofUpdates    MessageType = 0x08
+	MessageTypeUnsubscribeProofUpdates  MessageType = 0x09
+	MessageTypeRequestDeltaProof        MessageType = 0x0A
+	MessageTypeDeltaProof               MessageType = 0x0B
+	MessageTypeRequestCommitmentHistory MessageType = 0x0C
+	MessageTypeCommitmentHistory        MessageType = 0x0D
+	MessageTypeRequestCommitmentDetails MessageType = 0x0E
+	MessageTypeCommitmentDetails        MessageType = 0x0F
 )
 
 type RequestProofMessage struct {

@@ -5,20 +5,19 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/mit-dci/go-bverify/mpt"
-
-	"github.com/mit-dci/go-bverify/crypto/sig64"
-
-	"github.com/mit-dci/go-bverify/crypto/fastsha256"
-
+	"github.com/mit-dci/go-bverify/bitcoin/coinparam"
+	"github.com/mit-dci/go-bverify/client/uspv"
 	"github.com/mit-dci/go-bverify/crypto/btcec"
-
+	"github.com/mit-dci/go-bverify/crypto/fastsha256"
+	"github.com/mit-dci/go-bverify/crypto/sig64"
+	"github.com/mit-dci/go-bverify/mpt"
 	"github.com/mit-dci/go-bverify/wire"
 )
 
 type Client struct {
 	conn          *wire.Connection
 	key           *btcec.PrivateKey
+	spv           *uspv.SPVCon
 	keyBytes      []byte
 	ack           chan bool
 	proof         chan *mpt.PartialMPT
@@ -33,7 +32,7 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 	var pk [33]byte
 	copy(pk[:], pub.SerializeCompressed())
 
-	cli := &Client{conn: wire.NewConnection(c), keyBytes: key, key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
+	cli := &Client{conn: wire.NewConnection(c), spv: new(uspv.SPVCon), keyBytes: key, key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
 	go cli.ReceiveLoop()
 	return cli, nil
 }
@@ -49,6 +48,10 @@ func NewClient(key []byte, addr string) (*Client, error) {
 
 func (c *Client) UsesKey(key []byte) bool {
 	return bytes.Equal(key, c.keyBytes)
+}
+
+func (c *Client) StartSPV() error {
+	return c.spv.Start(&coinparam.TestNet3Params)
 }
 
 func (c *Client) ReceiveLoop() {
@@ -177,4 +180,8 @@ func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (
 	}
 	l.Signature = csig
 	return l, nil
+}
+
+func (c *Client) HeaderSync() {
+
 }
