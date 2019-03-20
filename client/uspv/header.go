@@ -12,6 +12,8 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
+
 	"github.com/mit-dci/go-bverify/bitcoin/blockchain"
 	"github.com/mit-dci/go-bverify/bitcoin/coinparam"
 	"github.com/mit-dci/go-bverify/bitcoin/wire"
@@ -173,6 +175,37 @@ func FindHeader(r io.ReadSeeker, hdr wire.BlockHeader) (int32, error) {
 	}
 
 	return 0, nil
+}
+
+func (s *SPVCon) GetHeaderByBlockHash(hash *chainhash.Hash) (*wire.BlockHeader, error) {
+	numBlocks := s.GetHeaderTipHeight() // This does some nice sanity checks
+
+	s.headerMutex.Lock() // start header file ops
+	defer s.headerMutex.Unlock()
+
+	var cur wire.BlockHeader
+
+	for tries := 1; tries < utils.Min(10000, int(numBlocks)); tries++ {
+		_, err := s.headerFile.Seek(int64(-80*tries), os.SEEK_END)
+		if err != nil {
+			logging.Error(err)
+			return nil, err
+		}
+
+		//	for blkhash.IsEqual(&target) {
+		err = cur.Deserialize(s.headerFile)
+		if err != nil {
+			logging.Error(err)
+			return nil, err
+		}
+		curhash := cur.BlockHash()
+
+		if hash.IsEqual(&curhash) {
+			return &cur, nil
+		}
+	}
+
+	return nil, fmt.Errorf("Block not found")
 }
 
 // CheckHeaderChain takes in the headers message and sees if they all validate.

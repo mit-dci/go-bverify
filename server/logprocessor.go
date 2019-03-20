@@ -100,6 +100,22 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 		return lp.ProcessRequestDeltaProof(pm)
 	}
 
+	if t == wire.MessageTypeRequestCommitmentDetails {
+		pm, err := wire.NewRequestCommitmentDetailsMessageFromBytes(m)
+		if err != nil {
+			return err
+		}
+		return lp.ProcessRequestCommitmentDetails(pm)
+	}
+
+	if t == wire.MessageTypeRequestCommitmentHistory {
+		pm, err := wire.NewRequestCommitmentHistoryMessageFromBytes(m)
+		if err != nil {
+			return err
+		}
+		return lp.ProcessRequestCommitmentHistory(pm)
+	}
+
 	if t == wire.MessageTypeSubscribeProofUpdates {
 		lp.autoUpdates = true
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
@@ -240,5 +256,19 @@ func (lp *ServerLogProcessor) SubscribeToLog(logID [32]byte) {
 	}
 
 	lp.logIDs = append(lp.logIDs, logID[:])
+}
 
+func (lp *ServerLogProcessor) ProcessRequestCommitmentDetails(pm *wire.RequestCommitmentDetailsMessage) error {
+	c, err := lp.server.GetCommitmentDetails(pm.Commitment)
+	if err != nil {
+		return err
+	}
+	msg := wire.NewCommitmentDetailsMessage(c)
+	return lp.conn.WriteMessage(wire.MessageTypeCommitmentDetails, msg.Bytes())
+}
+
+func (lp *ServerLogProcessor) ProcessRequestCommitmentHistory(pm *wire.RequestCommitmentHistoryMessage) error {
+	c := lp.server.GetCommitmentHistory(pm.SinceCommitment)
+	msg := wire.NewCommitmentHistoryMessage(c)
+	return lp.conn.WriteMessage(wire.MessageTypeCommitmentHistory, msg.Bytes())
 }

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 	"github.com/mit-dci/go-bverify/bitcoin/coinparam"
+	btcwire "github.com/mit-dci/go-bverify/bitcoin/wire"
 	"github.com/mit-dci/go-bverify/client/uspv"
 	"github.com/mit-dci/go-bverify/crypto/btcec"
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
@@ -21,6 +23,8 @@ type Client struct {
 	keyBytes      []byte
 	ack           chan bool
 	proof         chan *mpt.PartialMPT
+	commitDetails chan *wire.Commitment
+	commitHistory chan []*wire.Commitment
 	pubKey        [33]byte
 	OnError       func(error, *Client)
 	OnProofUpdate func([]byte, *Client)
@@ -32,7 +36,17 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 	var pk [33]byte
 	copy(pk[:], pub.SerializeCompressed())
 
-	cli := &Client{conn: wire.NewConnection(c), spv: new(uspv.SPVCon), keyBytes: key, key: priv, pubKey: pk, proof: make(chan *mpt.PartialMPT, 1), ack: make(chan bool, 1)}
+	cli := &Client{
+		conn:          wire.NewConnection(c),
+		spv:           new(uspv.SPVCon),
+		keyBytes:      key,
+		key:           priv,
+		pubKey:        pk,
+		commitDetails: make(chan *wire.Commitment, 1),
+		commitHistory: make(chan []*wire.Commitment, 1),
+		proof:         make(chan *mpt.PartialMPT, 1),
+		ack:           make(chan bool, 1),
+	}
 	go cli.ReceiveLoop()
 	return cli, nil
 }
@@ -42,7 +56,6 @@ func NewClient(key []byte, addr string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return NewClientWithConnection(key, c)
 }
 
@@ -90,6 +103,26 @@ func (c *Client) ReceiveLoop() {
 			c.proof <- mpt
 			continue
 		}
+
+		if t == wire.MessageTypeCommitmentDetails {
+			msg, err := wire.NewCommitmentDetailsMessageFromBytes(p)
+			if err != nil {
+				c.conn.Close()
+				return
+			}
+			c.commitDetails <- msg.Commitment
+			continue
+		}
+
+		if t == wire.MessageTypeCommitmentHistory {
+			msg, err := wire.NewCommitmentHistoryMessageFromBytes(p)
+			if err != nil {
+				c.conn.Close()
+				return
+			}
+			c.commitHistory <- msg.Commitments
+			continue
+		}
 	}
 }
 
@@ -117,7 +150,6 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 	<-c.ack
 
 	return hash, nil
-
 }
 
 func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
@@ -182,6 +214,28 @@ func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (
 	return l, nil
 }
 
-func (c *Client) HeaderSync() {
+func (c *Client) GetCommitmentHistory(sinceCommitment [32]byte) ([]*wire.Commitment, error) {
+	msg := wire.NewRequestCommitmentHistoryMessage(sinceCommitment)
+	err := c.conn.WriteMessage(wire.MessageTypeRequestCommitmentHistory, msg.Bytes())
+	if err != nil {
+		return nil, err
+	}
 
+	hist := <-c.commitHistory
+	return hist, nil
+}
+
+func (c *Client) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, error) {
+	msg := wire.NewRequestCommitmentDetailsMessage(commitment)
+	err := c.conn.WriteMessage(wire.MessageTypeRequestCommitmentDetails, msg.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	details := <-c.commitDetails
+	return details, nil
+}
+
+func (c *Client) GetBlockHeaderByHash(hash *chainhash.Hash) (*btcwire.BlockHeader, error) {
+	return c.spv.GetHeaderByBlockHash(hash)
 }

@@ -26,15 +26,17 @@ const MINOUTPUT uint64 = 1000
 
 type Wallet struct {
 	// The key to commit to the blockchain with
-	privateKey        *btcec.PrivateKey
-	pubKey            *btcec.PublicKey
-	pubKeyHash        [20]byte
-	utxos             []Utxo
-	db                *buntdb.DB
-	rpcClient         *rpcclient.Client
-	activeChain       ChainIndex
-	newBlockListeners []chan *wire.MsgBlock
-	params            *chaincfg.Params
+	privateKey         *btcec.PrivateKey
+	pubKey             *btcec.PublicKey
+	pubKeyHash         [20]byte
+	utxos              []Utxo
+	db                 *buntdb.DB
+	rpcClient          *rpcclient.Client
+	activeChain        ChainIndex
+	newBlockListeners  []chan *wire.MsgBlock
+	params             *chaincfg.Params
+	synced             bool
+	lastCommitmentTxId []byte
 }
 
 func NewWallet(params *chaincfg.Params, rescanBlocks int) (*Wallet, error) {
@@ -77,7 +79,7 @@ func NewWallet(params *chaincfg.Params, rescanBlocks int) (*Wallet, error) {
 
 	w.newBlockListeners = make([]chan *wire.MsgBlock, 0)
 	logging.Debugf("Wallet initialized. At height %d - Balance %d - Address is: %s\n", len(w.activeChain), w.Balance(), w.address())
-
+	w.synced = false
 	go w.BlockLoop()
 
 	// TODO: make this configurable
@@ -105,14 +107,21 @@ func (w *Wallet) address() string {
 	return adr
 }
 
-func (w *Wallet) loadStuff() {
-	w.db.View(func(tx *buntdb.Tx) error {
+func (w *Wallet) loadStuff() error {
+	err := w.db.View(func(tx *buntdb.Tx) error {
 		tx.AscendRange("", "utxo-", "utxp-", func(key, value string) bool {
 			w.utxos = append(w.utxos, UtxoFromBytes([]byte(value)))
 			return true
 		})
+
+		txidString, err := tx.Get("lastcommit-txid", false)
+		if err != nil {
+			return err
+		}
+		w.lastCommitmentTxId = []byte(txidString)
 		return nil
 	})
+	return err
 }
 
 func (w *Wallet) HeightOfBlock(blockHash chainhash.Hash) int {
@@ -122,6 +131,7 @@ func (w *Wallet) HeightOfBlock(blockHash chainhash.Hash) int {
 func (w *Wallet) BlockLoop() {
 	for {
 		time.Sleep(time.Second * 5)
+		w.synced = false
 		bestHash, err := w.rpcClient.GetBestBlockHash()
 		if err != nil {
 			logging.Errorf("Error getting best blockhash: %s\n", err.Error())
@@ -129,6 +139,7 @@ func (w *Wallet) BlockLoop() {
 		}
 
 		if bestHash.IsEqual(w.activeChain[len(w.activeChain)-1]) {
+			w.synced = true
 			continue
 		}
 
@@ -176,22 +187,49 @@ func (w *Wallet) BlockLoop() {
 				continue
 			}
 		}
-		w.persistChainState()
 
+		w.synced = true
+		w.persistChainState()
 	}
+}
+
+func (w *Wallet) IsSynced() bool {
+	return w.synced
 }
 
 func (w *Wallet) AddInputsAndChange(tx *wire.MsgTx, totalValueNeeded uint64) error {
 	valueAdded := uint64(0)
 	utxosToAdd := []Utxo{}
-	for _, utxo := range w.utxos {
-		utxosToAdd = append(utxosToAdd, utxo)
-		valueAdded += utxo.Value
-		if valueAdded > totalValueNeeded {
+	// This may seem weird, but we're adding _all_ inputs always. Why? Because we
+	// want to prevent polluting the UTXO set. If someone donates to our server's
+	// wallet (or we do ourselves), we immediately consolidate the coins in the
+	// next commitment. The OP_RETURN will still be the 0th output, and the previous
+	// commitment should be the first txin to ensure we form a chain.
+	//
+	// So, first find the index of the last commitment's TX output 1
+
+	lastOutputIdx := -1
+	for i, utxo := range w.utxos {
+		if utxo.Outpoint == 1 && bytes.Equal(utxo.TxHash[:], w.lastCommitmentTxId) {
+			lastOutputIdx = i
 			break
 		}
-
 	}
+
+	if lastOutputIdx == -1 {
+		logging.Warnf("Did not find last commitment's output in the UTXOs. This is fine when we are a fresh server. Otherwise, there's something wrong")
+	} else {
+		valueAdded += w.utxos[lastOutputIdx].Value
+		utxosToAdd = append(utxosToAdd, w.utxos[lastOutputIdx])
+	}
+
+	for i, utxo := range w.utxos {
+		if i != lastOutputIdx {
+			valueAdded += utxo.Value
+			utxosToAdd = append(utxosToAdd, utxo)
+		}
+	}
+
 	if valueAdded < totalValueNeeded {
 		return fmt.Errorf("Insufficient balance")
 	}
@@ -371,7 +409,7 @@ func (w *Wallet) SignMyInputs(tx *wire.MsgTx) error {
 	return nil
 }
 
-func (w *Wallet) Commit(commitment []byte) ([]byte, []byte, error) {
+func (w *Wallet) Commit(commitment []byte) (*chainhash.Hash, []byte, error) {
 	tx := wire.NewMsgTx(1)
 	neededInputs := uint64(1000) // minfee
 
@@ -394,5 +432,14 @@ func (w *Wallet) Commit(commitment []byte) ([]byte, []byte, error) {
 	var buf bytes.Buffer
 	tx.Serialize(&buf)
 
-	return txid.CloneBytes(), buf.Bytes(), nil
+	w.lastCommitmentTxId = txid[:]
+	err = w.db.Update(func(dtx *buntdb.Tx) error {
+		_, _, err := dtx.Set("lastcommit-txid", string(txid[:]), nil)
+		return err
+	})
+	if err != nil {
+		logging.Errorf("[Wallet] Error saving lastcommit txid: %s", err.Error())
+	}
+
+	return txid, buf.Bytes(), nil
 }

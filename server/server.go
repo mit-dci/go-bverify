@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -10,18 +9,21 @@ import (
 	"os"
 	"path"
 	"sync"
+	"time"
 
-	"github.com/mit-dci/go-bverify/bitcoin/chaincfg"
+	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 
 	"github.com/tidwall/buntdb"
 
 	"github.com/mit-dci/go-bverify/bitcoin/blockchain"
 	"github.com/mit-dci/go-bverify/bitcoin/btcutil"
-	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/bitcoin/chaincfg"
+	btcwire "github.com/mit-dci/go-bverify/bitcoin/wire"
 	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/mpt"
 	"github.com/mit-dci/go-bverify/utils"
 	"github.com/mit-dci/go-bverify/wallet"
+	"github.com/mit-dci/go-bverify/wire"
 )
 
 type ServerState struct {
@@ -65,13 +67,14 @@ type Server struct {
 	commitmentDb *buntdb.DB
 
 	// In-memory array for keeping commitment history
-	commitments []*Commitment
+	commitments []*wire.Commitment
 
 	// channel to stop
 	stop chan bool
 
 	// channel to indicate the server is up and running
-	ready chan bool
+	ready   chan bool
+	isReady bool
 
 	// Listener for clients
 	listener *net.TCPListener
@@ -93,60 +96,6 @@ type Server struct {
 
 	// Blocks to rescan on startup
 	RescanBlocks int
-}
-
-type Commitment struct {
-	Commitment             [32]byte
-	TxID                   [32]byte
-	TriggeredAtBlockHeight int
-	IncludedInBlock        int
-	MerkleProof            []byte
-	RawTx                  []byte
-}
-
-func (c *Commitment) Bytes() []byte {
-	var b bytes.Buffer
-	b.Write(c.Commitment[:])
-
-	logging.Debugf("After commitment: [%x]", b.Bytes())
-
-	b.Write(c.TxID[:])
-
-	logging.Debugf("After TxID: [%x]", b.Bytes())
-
-	binary.Write(&b, binary.BigEndian, int32(c.TriggeredAtBlockHeight))
-	logging.Debugf("After TriggeredAtBlockHeight: [%x]", b.Bytes())
-	binary.Write(&b, binary.BigEndian, int32(c.IncludedInBlock))
-	logging.Debugf("After IncludedInBlock: [%x]", b.Bytes())
-	binary.Write(&b, binary.BigEndian, int32(len(c.MerkleProof)))
-	logging.Debugf("After len(c.MerkleProof): [%x]", b.Bytes())
-	b.Write(c.MerkleProof)
-	logging.Debugf("After MerkleProof: [%x]", b.Bytes())
-	b.Write(c.RawTx)
-	logging.Debugf("After RawTx: [%x]", b.Bytes())
-	return b.Bytes()
-}
-
-func CommitmentFromBytes(b []byte) *Commitment {
-	c := Commitment{}
-	logging.Debugf("Deserializing commitment: [%x]", b)
-	buf := bytes.NewBuffer(b)
-	copy(c.Commitment[:], buf.Next(32))
-	copy(c.TxID[:], buf.Next(32))
-	var i int32
-	binary.Read(buf, binary.BigEndian, &i)
-	c.TriggeredAtBlockHeight = int(i)
-	binary.Read(buf, binary.BigEndian, &i)
-	c.IncludedInBlock = int(i)
-
-	binary.Read(buf, binary.BigEndian, &i)
-	c.MerkleProof = buf.Next(int(i))
-	c.RawTx = buf.Bytes()
-	return &c
-}
-
-func NewCommitment(c, txid [32]byte, rawTx []byte, triggerHeight int) *Commitment {
-	return &Commitment{Commitment: c, TxID: txid, RawTx: rawTx, TriggeredAtBlockHeight: triggerHeight}
 }
 
 func NewServer(addr string, rescanBlocks int) (*Server, error) {
@@ -237,13 +186,60 @@ func (srv *Server) Run() error {
 		return err
 	}
 
-	newBlockChan := make(chan *wire.MsgBlock, 100)
+	newBlockChan := make(chan *btcwire.MsgBlock, 100)
 	srv.wallet.AddNewBlockListener(newBlockChan)
 	go srv.blockWatcher(newBlockChan)
 	srv.loadState()
 	srv.loadCommitments()
 
 	logging.Debugf("Server ready. Commitment: %x - Last committed at height: %d", srv.lastCommitment, srv.LastCommitHeight)
+
+	// When we're starting a new server, we need to commit a fixed value to the
+	// chain, to indicidate the starting of our commitment server.
+	// Otherwise, how would you prove there hasn't been any previous commitments?
+	// So if len(commitments) == 0 then ignore this clause, forcing the commitment
+	// even if it's empty.
+	if len(srv.commitments) == 0 {
+		logging.Debugf("This is a fresh server. Before opening our doors, we'll have to do our maiden commitment.")
+		loggedWarning := false
+		for {
+			if srv.wallet.IsSynced() {
+				break
+			}
+			if !loggedWarning {
+				logging.Warnf("Waiting for wallet to be synced")
+				loggedWarning = true
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+
+		loggedWarning = false
+		for {
+			if srv.wallet.Balance() > 5000 {
+				break
+			}
+			if !loggedWarning {
+				logging.Warnf("We need at least 5000 satoshi balance in our wallet to be able to commit. Deposit that into your wallet to kick things off.")
+				loggedWarning = true
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+
+		// Okay we have enough money now, so register a fixed log that will always
+		// result in the same commitment hash. That way we can recognize that as the
+		// "maiden hash" in each chain of commitments.
+		srv.RegisterLogID([32]byte{}, [33]byte{})
+		logHash := fastsha256.Sum256([]byte("Maiden commitment for b_verify"))
+		srv.RegisterLogStatement([32]byte{}, 0, logHash[:])
+		err := srv.Commit()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	srv.isReady = true
 
 	select {
 	case srv.ready <- true:
@@ -267,7 +263,7 @@ func (srv *Server) Run() error {
 	return nil
 }
 
-func (srv *Server) blockWatcher(wc chan *wire.MsgBlock) {
+func (srv *Server) blockWatcher(wc chan *btcwire.MsgBlock) {
 	for block := range wc {
 
 		// check if our last commit is in here
@@ -279,9 +275,11 @@ func (srv *Server) blockWatcher(wc chan *wire.MsgBlock) {
 		blocksSince := srv.wallet.Height() - srv.LastCommitHeight
 		if blocksSince >= srv.CommitEveryNBlocks {
 			logging.Debugf("Got new block, committing to chain!")
-			err := srv.Commit()
-			if err != nil {
-				logging.Errorf("Error while committing to chain: %s", err.Error())
+			if srv.isReady {
+				err := srv.Commit()
+				if err != nil {
+					logging.Errorf("Error while committing to chain: %s", err.Error())
+				}
 			}
 		} else {
 			logging.Debugf("Got new block, %d since last commit (commit every %d) - waiting", blocksSince, srv.CommitEveryNBlocks)
@@ -290,10 +288,10 @@ func (srv *Server) blockWatcher(wc chan *wire.MsgBlock) {
 }
 
 func (srv *Server) loadCommitments() {
-	srv.commitments = make([]*Commitment, 0)
+	srv.commitments = make([]*wire.Commitment, 0)
 	err := srv.commitmentDb.View(func(tx *buntdb.Tx) error {
 		tx.AscendRange("", "commitment-", "commitmenu-", func(key, value string) bool {
-			srv.commitments = append(srv.commitments, CommitmentFromBytes([]byte(value)))
+			srv.commitments = append(srv.commitments, wire.CommitmentFromBytes([]byte(value)))
 			return true
 		})
 		return nil
@@ -312,7 +310,7 @@ func (srv *Server) loadCommitments() {
 	}
 }
 
-func (srv *Server) saveCommitment(c *Commitment) {
+func (srv *Server) saveCommitment(c *wire.Commitment) {
 	alreadyAtIdx := -1
 	for i, sc := range srv.commitments {
 		if bytes.Equal(c.Commitment[:], sc.Commitment[:]) {
@@ -339,23 +337,24 @@ func (srv *Server) saveCommitment(c *Commitment) {
 	}
 }
 
-func (srv *Server) getPendingCommitments() []*Commitment {
-	r := make([]*Commitment, 0)
+func (srv *Server) getPendingCommitments() []*wire.Commitment {
+	r := make([]*wire.Commitment, 0)
 	for _, c := range srv.commitments {
-		if c.IncludedInBlock == 0 {
+		if c.IncludedInBlock == nil {
 			r = append(r, c)
 		}
 	}
 	return r
 }
 
-func (srv *Server) processMerkleProofs(block *wire.MsgBlock) error {
+func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 	pending := srv.getPendingCommitments()
+	logging.Debugf("We have %d pending commitments", len(pending))
 	for _, c := range pending {
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
 			hash := tx.TxHash()
-			if bytes.Equal(hash.CloneBytes(), c.TxID[:]) {
+			if bytes.Equal(hash[:], c.TxHash[:]) {
 				commitmentInBlock = true
 				break
 			}
@@ -369,40 +368,25 @@ func (srv *Server) processMerkleProofs(block *wire.MsgBlock) error {
 			}
 			hashes := blockchain.BuildMerkleTreeStore(txs, false)
 
-			// sanity check
-			if !bytes.Equal(hashes[len(hashes)-1].CloneBytes(), merkleRoot.CloneBytes()) {
-				return fmt.Errorf("Merkle root from BuildMerkleTreeStore doesn't match")
-			}
-
 			// next, find the index of our txid
 			hashIdx := -1
 			for i, h := range hashes {
-				if bytes.Equal(h.CloneBytes(), c.TxID[:]) {
+				if bytes.Equal(h.CloneBytes(), c.TxHash[:]) {
 					hashIdx = i
 					break
 				}
 			}
 
-			if hashIdx == -1 {
-				return fmt.Errorf("Did not find hash in merkle tree. This shouldn't happen")
-			}
-
-			treeHeight := utils.NextPowerOfTwo(uint64(len(block.Transactions)))
-			proof := utils.MerkleProof{Position: uint64(hashIdx), Hashes: make([][32]byte, treeHeight)}
-			for i := uint(0); i < treeHeight; i++ {
-				hash32 := [32]byte{}
-				copy(hash32[:], hashes[hashIdx^1][:])
-				proof.Hashes[i] = hash32
-				hashIdx = (hashIdx >> 1) | (1 << treeHeight)
-			}
+			proof := utils.NewMerkleProof(hashes, uint64(hashIdx))
 
 			// sanity check
-			if !proof.Check(c.TxID[:], merkleRoot.CloneBytes()) {
+			if !proof.Check(c.TxHash, &merkleRoot) {
 				panic(fmt.Errorf("Merkle root doesn't match"))
 			}
 
-			c.MerkleProof = proof.Bytes()
-			c.IncludedInBlock = srv.wallet.HeightOfBlock(block.BlockHash())
+			c.MerkleProof = proof
+			blockHash := block.BlockHash()
+			c.IncludedInBlock = &blockHash
 			srv.saveCommitment(c)
 		}
 	}
@@ -484,11 +468,9 @@ func (srv *Server) Commit() error {
 		return err
 	}
 
-	txID32 := [32]byte{}
 	comm32 := [32]byte{}
-	copy(txID32[:], txID)
 	copy(comm32[:], commitment)
-	c := NewCommitment(comm32, txID32, rawTx, srv.wallet.Height())
+	c := wire.NewCommitment(comm32, txID, rawTx, srv.wallet.Height())
 	srv.saveCommitment(c)
 	logging.Debugf("Committed to chain: %x", txID)
 
@@ -541,9 +523,55 @@ func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {
 	return srv.lastDelta.GetUpdatesForKeys(keys)
 }
 
-func (srv *Server) GetChainProof(commitment [32]byte) ([][33]byte, error) {
-	// TODO
-	return nil, nil
+func (srv *Server) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, error) {
+	null := [32]byte{}
+	if bytes.Equal(null[:], commitment[:]) {
+		return srv.commitments[len(srv.commitments)-1], nil
+	}
+
+	for _, c := range srv.commitments {
+		if bytes.Equal(c.Commitment[:], commitment[:]) {
+			// Return a clone
+			return wire.CommitmentFromBytes(c.Bytes()), nil
+		}
+	}
+	return nil, fmt.Errorf("Commitment not found")
+}
+
+func (srv *Server) GetCommitmentHistory(sinceCommitment [32]byte) []*wire.Commitment {
+	logging.Debugf("Fetching commit history since %x", sinceCommitment)
+	startIdx := int(0)
+	null := [32]byte{}
+	if !bytes.Equal(null[:], sinceCommitment[:]) {
+		for i, c := range srv.commitments {
+			if bytes.Equal(c.Commitment[:], sinceCommitment[:]) {
+				startIdx = i
+				break
+			}
+		}
+	}
+
+	logging.Debugf("Start index is %d", startIdx)
+
+	// Create a new array that we're gonna return. It'll
+	// contain all commitments we have.
+	commitments := make([]*wire.Commitment, 0)
+	if len(srv.commitments) > startIdx {
+		for _, c := range srv.commitments[startIdx+1:] {
+			// Clone each commitment into the array we return
+			// We don't want the caller to mess anything up to our
+			// in-memory array.
+			comm := wire.CommitmentFromBytes(c.Bytes())
+			if comm.IncludedInBlock != nil {
+				// Only include mined commitments
+				commitments = append(commitments, comm)
+			} else {
+				logging.Debugf("Skipping commitment %x since it's not included in a block yet", comm.Commitment)
+			}
+
+		}
+	}
+	return commitments
 }
 
 func (srv *Server) TreeSize() int {
