@@ -184,7 +184,7 @@ func RunClientUpdateBench() {
 // measure the time and size of a proof update for clients
 // whose logs have not been changed (while there were other updates)
 func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clientUpdateBenchResult {
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}

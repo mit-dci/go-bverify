@@ -24,7 +24,7 @@ func RunProofSizeBench() {
 	// We output a graph per number of logs
 	proofLogs := [4]int{1, 10, 100, 1000}
 
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}

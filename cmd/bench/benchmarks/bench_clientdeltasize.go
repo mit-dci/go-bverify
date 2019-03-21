@@ -22,7 +22,7 @@ const (
 // measure the size of a proof update (Delta) for a client
 // maintaining a single log that does not change
 func RunClientDeltaSizeBench() {
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}

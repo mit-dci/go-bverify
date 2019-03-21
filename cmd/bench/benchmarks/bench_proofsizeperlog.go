@@ -22,7 +22,7 @@ const (
 // logs in total (in steps of PROOFSIZEPERLOG_INCREMENTS)
 func RunProofSizePerLogBench() {
 	fmt.Printf("Running proof size per log benchmark\n")
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}

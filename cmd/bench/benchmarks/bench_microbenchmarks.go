@@ -23,7 +23,7 @@ const (
 )
 
 func RunMicroBench() {
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}

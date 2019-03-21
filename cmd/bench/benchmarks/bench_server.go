@@ -66,7 +66,7 @@ func RunServerBench(port int) {
 	operationCounts = make([]int64, 11)      // Total number of messages
 	operationRunningTime = make([]int64, 11) // Total number of messages
 
-	srv, err := server.NewServer("")
+	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
 	}
