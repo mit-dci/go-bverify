@@ -11,5 +11,6 @@ func main() {
 	flag.Parse()
 
 	srv, _ := server.NewServer(":9100", *rescanBlocks)
+	srv.Full = true
 	srv.Run()
 }

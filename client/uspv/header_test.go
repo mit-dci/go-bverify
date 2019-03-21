@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
-	"github.com/mit-dci/lit/coinparam"
-	"github.com/mit-dci/lit/logging"
+	"github.com/mit-dci/go-bverify/bitcoin/coinparam"
 	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/logging"
 )
 
 func randomHex(n int) string {

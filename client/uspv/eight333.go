@@ -17,7 +17,7 @@ const (
 
 	// VERSION hardcoded for now, probably ok...?
 	// 70012 is for segnet... make this an init var?
-	VERSION = 70012
+	VERSION = 70015
 )
 
 // HashAndHeight is needed instead of just height in case a fullnode
@@ -58,6 +58,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 			m.Headers[len(m.Headers)-1].BlockHash().String())
 	} else {
 		logging.Infof("got 0 headers, we're probably synced up")
+		s.Synced = true
 		return false, nil
 	}
 
@@ -106,6 +107,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 
 // AskForHeaders ...
 func (s *SPVCon) AskForHeaders() error {
+	s.Synced = false
 	ghdr := wire.NewMsgGetHeaders()
 	ghdr.ProtocolVersion = s.localVersion
 

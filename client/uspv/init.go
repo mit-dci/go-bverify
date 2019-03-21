@@ -63,9 +63,8 @@ func (s *SPVCon) GetListOfNodes() ([]string, error) {
 		logging.Infof("Got %d IPs from DNS seed %s\n", len(temp), seed)
 	}
 	if len(listOfNodes) == 0 {
-		return nil, fmt.Errorf("No peers found connected to DNS Seeds. Please provide a host to connect to.")
+		return []string{"127.0.0.1"}, nil
 	}
-	logging.Info(listOfNodes)
 	return listOfNodes, nil
 }
 

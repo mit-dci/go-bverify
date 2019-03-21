@@ -44,8 +44,6 @@ func TestGetBit(t *testing.T) {
 	for i, bit := range bits {
 		if GetBit(b, uint(i)) != (bit == '1') {
 			t.Errorf("Failed at bit %d - expected %t , got %t", i, (bit == '1'), GetBit(b, uint(i)))
-		} else {
-			t.Logf("Correct bit %d: %t", i, (bit == '1'))
 		}
 	}
 }

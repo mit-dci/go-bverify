@@ -96,33 +96,20 @@ type Server struct {
 
 	// Blocks to rescan on startup
 	RescanBlocks int
+
+	// Full server also runs an actual Bitcoin wallet and commits to the actual chain
+	Full bool
 }
 
 func NewServer(addr string, rescanBlocks int) (*Server, error) {
-	var err error
-	os.MkdirAll(utils.DataDirectory(), 0700)
-
 	logging.SetLogLevel(int(logging.LogLevelDebug))
 
-	logFilePath := path.Join(utils.DataDirectory(), "b_verify.log")
-	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	defer logFile.Close()
-	logging.SetLogFile(logFile)
-
 	srv := new(Server)
-	srv.wallet, err = wallet.NewWallet(&chaincfg.TestNet3Params, rescanBlocks)
-	if err != nil {
-		return nil, err
-	}
+	srv.RescanBlocks = rescanBlocks
 	srv.AutoCommit = true
 	srv.KeepCommitmentTree = true
 	srv.CommitEveryNBlocks = 6 // every hour (well, on bitcoin at least)
 	srv.addr = addr
-
-	srv.commitmentDb, err = buntdb.Open(path.Join(utils.DataDirectory(), "commitment.db"))
-	if err != nil {
-		return nil, err
-	}
 
 	if srv.addr == "" {
 		srv.addr = ":9100"
@@ -186,14 +173,32 @@ func (srv *Server) Run() error {
 		return err
 	}
 
-	newBlockChan := make(chan *btcwire.MsgBlock, 100)
-	srv.wallet.AddNewBlockListener(newBlockChan)
-	go srv.blockWatcher(newBlockChan)
-	srv.loadState()
-	srv.loadCommitments()
+	if srv.Full {
+		os.MkdirAll(utils.DataDirectory(), 0700)
+
+		logFilePath := path.Join(utils.DataDirectory(), "b_verify.log")
+		logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer logFile.Close()
+		logging.SetLogFile(logFile)
+
+		srv.wallet, err = wallet.NewWallet(&chaincfg.RegressionNetParams, srv.RescanBlocks)
+		if err != nil {
+			return err
+		}
+
+		srv.commitmentDb, err = buntdb.Open(path.Join(utils.DataDirectory(), "commitment.db"))
+		if err != nil {
+			return err
+		}
+
+		newBlockChan := make(chan *btcwire.MsgBlock, 100)
+		srv.wallet.AddNewBlockListener(newBlockChan)
+		go srv.blockWatcher(newBlockChan)
+		srv.loadState()
+		srv.loadCommitments()
+	}
 
 	logging.Debugf("Server ready. Commitment: %x - Last committed at height: %d", srv.lastCommitment, srv.LastCommitHeight)
-
 	// When we're starting a new server, we need to commit a fixed value to the
 	// chain, to indicidate the starting of our commitment server.
 	// Otherwise, how would you prove there hasn't been any previous commitments?
@@ -201,32 +206,33 @@ func (srv *Server) Run() error {
 	// even if it's empty.
 	if len(srv.commitments) == 0 {
 		logging.Debugf("This is a fresh server. Before opening our doors, we'll have to do our maiden commitment.")
-		loggedWarning := false
-		for {
-			if srv.wallet.IsSynced() {
-				break
-			}
-			if !loggedWarning {
-				logging.Warnf("Waiting for wallet to be synced")
-				loggedWarning = true
+		if srv.Full {
+			loggedWarning := false
+			for {
+				if srv.wallet.IsSynced() {
+					break
+				}
+				if !loggedWarning {
+					logging.Warnf("Waiting for wallet to be synced")
+					loggedWarning = true
+				}
+
+				time.Sleep(1 * time.Second)
 			}
 
-			time.Sleep(1 * time.Second)
+			loggedWarning = false
+			for {
+				if srv.wallet.Balance() > 5000 {
+					break
+				}
+				if !loggedWarning {
+					logging.Warnf("We need at least 5000 satoshi balance in our wallet to be able to commit. Deposit that into your wallet to kick things off.")
+					loggedWarning = true
+				}
+
+				time.Sleep(1 * time.Second)
+			}
 		}
-
-		loggedWarning = false
-		for {
-			if srv.wallet.Balance() > 5000 {
-				break
-			}
-			if !loggedWarning {
-				logging.Warnf("We need at least 5000 satoshi balance in our wallet to be able to commit. Deposit that into your wallet to kick things off.")
-				loggedWarning = true
-			}
-
-			time.Sleep(1 * time.Second)
-		}
-
 		// Okay we have enough money now, so register a fixed log that will always
 		// result in the same commitment hash. That way we can recognize that as the
 		// "maiden hash" in each chain of commitments.
@@ -463,19 +469,20 @@ func (srv *Server) Commit() error {
 
 	srv.fullmpt.Reset()
 
-	txID, rawTx, err := srv.wallet.Commit(commitment[:])
-	if err != nil {
-		return err
+	if srv.Full {
+		txID, rawTx, err := srv.wallet.Commit(commitment[:])
+		if err != nil {
+			return err
+		}
+
+		comm32 := [32]byte{}
+		copy(comm32[:], commitment)
+		c := wire.NewCommitment(comm32, txID, rawTx, srv.wallet.Height())
+		srv.saveCommitment(c)
+		logging.Debugf("Committed to chain: %x", txID)
+
+		srv.commitState()
 	}
-
-	comm32 := [32]byte{}
-	copy(comm32[:], commitment)
-	c := wire.NewCommitment(comm32, txID, rawTx, srv.wallet.Height())
-	srv.saveCommitment(c)
-	logging.Debugf("Committed to chain: %x", txID)
-
-	srv.commitState()
-
 	commitment = nil
 	return nil
 }
@@ -510,6 +517,11 @@ func (srv *Server) loadState() error {
 		return err
 	}
 
+	srv.fullmpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
+	if err != nil {
+		return err
+	}
+
 	copy(srv.lastCommitment[:], srv.LastCommitMpt.Commitment())
 
 	return nil
@@ -540,7 +552,7 @@ func (srv *Server) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, 
 
 func (srv *Server) GetCommitmentHistory(sinceCommitment [32]byte) []*wire.Commitment {
 	logging.Debugf("Fetching commit history since %x", sinceCommitment)
-	startIdx := int(0)
+	startIdx := int(-1)
 	null := [32]byte{}
 	if !bytes.Equal(null[:], sinceCommitment[:]) {
 		for i, c := range srv.commitments {

@@ -14,7 +14,7 @@ import (
 
 func TestRegisterGetLogKey(t *testing.T) {
 	fmt.Printf("TestRegisterGetLogKeys...")
-	srv, err := NewServer("")
+	srv, err := NewServer("", 0)
 	if err != nil {
 		t.Error(err)
 		return
@@ -63,7 +63,7 @@ func TestLogAndCommit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	srv, err := NewServer("")
+	srv, err := NewServer("", 0)
 	if err != nil {
 		t.Error(err)
 		return
@@ -145,13 +145,13 @@ func TestServerConnectivity(t *testing.T) {
 	fmt.Printf("TestServerConnectivity")
 	// Use weird port for test, not the actual
 	// runtime default one
-	srv, err := NewServer(":56199")
+	srv, err := NewServer(":56199", 0)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	srv2, _ := NewServer("garbage")
+	srv2, _ := NewServer("garbage", 0)
 	err = srv2.Run()
 	if err == nil {
 		t.Error("Expected invalid port argument to return error, but it didn't")
@@ -167,7 +167,7 @@ func TestServerConnectivity(t *testing.T) {
 
 	<-srv.ready
 
-	srv2, _ = NewServer(":56199")
+	srv2, _ = NewServer(":56199", 0)
 	err = srv2.Run()
 	if err == nil {
 		t.Error("Expected using a port twice to throw an error (already in use) but it did not")

@@ -45,7 +45,8 @@ func TestLogProcessor(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	srv, _ := NewServer("")
+	fmt.Printf("Creating new server...")
+	srv, _ := NewServer("", 0)
 	c := newDummyClient(srv)
 
 	createLogInvalidSig := make([]byte, len(createLog))
@@ -93,6 +94,11 @@ func TestLogProcessor(t *testing.T) {
 	}
 
 	if !sendMessageTest("Append 2", c, wire.MessageTypeAppendLog, wire.MessageTypeAck, appendLog2, t) {
+		return
+	}
+
+	// Subscribe to proof updates
+	if !sendMessageTest("SubscribeProof", c, wire.MessageTypeSubscribeProofUpdates, wire.MessageTypeAck, []byte{}, t) {
 		return
 	}
 

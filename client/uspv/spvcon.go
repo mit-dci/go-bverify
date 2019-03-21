@@ -63,4 +63,6 @@ type SPVCon struct {
 	// waitState is a channel that is empty while in the header and block
 	// sync modes, but when in the idle state has a "true" in it.
 	inWaitState chan bool
+
+	Synced bool
 }

@@ -1,9 +1,21 @@
+// Client package is responsible for connecting to a server, and if wanted
+// checking proofs of both the chain commitment and the inclusion of our logs
+// in the commitment
 package client
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"os"
+	"path"
+
+	"github.com/mit-dci/go-bverify/logging"
+	"github.com/mit-dci/go-bverify/utils"
+	"github.com/tidwall/buntdb"
 
 	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 	"github.com/mit-dci/go-bverify/bitcoin/coinparam"
@@ -16,26 +28,63 @@ import (
 	"github.com/mit-dci/go-bverify/wire"
 )
 
+// maidenHash will store the (fixed) default initial hash every server should
+// write to the chain as their first commitment. That way clients can recognize
+// this as the start of the chain
+var maidenHash []byte
+
 type Client struct {
-	conn          *wire.Connection
-	key           *btcec.PrivateKey
-	spv           *uspv.SPVCon
-	keyBytes      []byte
+	// The connection to the server
+	conn *wire.Connection
+
+	// The key we're using to sign our statements
+	key      *btcec.PrivateKey
+	keyBytes []byte
+	pubKey   [33]byte
+
+	// The SPV connection to the blockchain
+	spv *uspv.SPVCon
+
+	// Channels for receiving replies from the server from
+	// the receive loop
 	ack           chan bool
 	proof         chan *mpt.PartialMPT
 	commitDetails chan *wire.Commitment
 	commitHistory chan []*wire.Commitment
-	pubKey        [33]byte
+
+	// You can set these function pointers to receive events
+	// from the client (errors and proof updates)
 	OnError       func(error, *Client)
 	OnProofUpdate func([]byte, *Client)
+
+	// The local data stored by the client
+	db *buntdb.DB
+
+	// The simple HTTP RPC server you can use to write
+	// new logs and statements
+	rpcServer *RpcServer
+
+	// A cache of the last server commitment
+	lastServerCommitment *wire.Commitment
+
+	// Clients can run in simple mode (where they're just a means to communicate
+	// with the server) or as full client (that runs checks on the commitments,
+	// fetches and caches bitcoin headers, etcetera).
+	fullClient bool
 }
 
+// NewClientWithConnection creates a new b_verify client using the provided
+// private key bytes and net.Conn
 func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 
+	// Create the keypair from the passed in byte array
 	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), key)
+
+	// Pre-generate and cache the public key
 	var pk [33]byte
 	copy(pk[:], pub.SerializeCompressed())
 
+	// Create the Client struct we're going to return
 	cli := &Client{
 		conn:          wire.NewConnection(c),
 		spv:           new(uspv.SPVCon),
@@ -46,11 +95,17 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 		commitHistory: make(chan []*wire.Commitment, 1),
 		proof:         make(chan *mpt.PartialMPT, 1),
 		ack:           make(chan bool, 1),
+		fullClient:    false,
 	}
+
+	// Start the loop that processes incoming response messages
 	go cli.ReceiveLoop()
+
 	return cli, nil
 }
 
+// NewClient will create a new Client that connects to the server and port
+// specified in addr
 func NewClient(key []byte, addr string) (*Client, error) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -59,27 +114,54 @@ func NewClient(key []byte, addr string) (*Client, error) {
 	return NewClientWithConnection(key, c)
 }
 
+// UsesKey return true if this client is using the key passed in. We don't
+// want to expose the key as a public variable but if you know the key
+// yourself, we can tell you if it matches.
 func (c *Client) UsesKey(key []byte) bool {
 	return bytes.Equal(key, c.keyBytes)
 }
 
+// StartSPV will initiate the process of downloading headers from the blockchain
+// to allow us to check SPV proofs for the commitment transactions
 func (c *Client) StartSPV() error {
-	return c.spv.Start(&coinparam.TestNet3Params)
+	return c.spv.Start(&coinparam.RegressionNetParams)
 }
 
+// SPVSynced returns true if there's no more headers to fetch for us (and we can
+// assume we've synced up all the headers from the blockchain)
+func (c *Client) SPVSynced() bool {
+	return c.spv.Synced
+}
+
+// SPVAskHeaders will (re)initiate the header synchronization if we have the idea
+// that we might have stale data, we can call this to talk to our known peers and
+// fetch new headers.
+func (c *Client) SPVAskHeaders() error {
+	return c.spv.AskForHeaders()
+}
+
+// ReceiveLoop will fetch new messages as they come in on the wire (from the server)
+// and try to process them accordingly.
 func (c *Client) ReceiveLoop() {
 	for {
 		t, p, err := c.conn.ReadNextMessage()
 		if err != nil {
+			// If we can't read from this transport anymore, or we receive invalid
+			// data, we should close the connection and exit the receive loop
 			c.conn.Close()
 			return
 		}
 
+		// If we receive an Ack message, send a boolean over the ack channel.
+		// client functions that expect an ack will wait by reading from this
+		// channel
 		if t == wire.MessageTypeAck {
 			c.ack <- true
 			continue
 		}
 
+		// If we receive an error from the server, we should call the OnError
+		// hook if it's set, and then exit the receive loop
 		if t == wire.MessageTypeError {
 			if c.OnError != nil {
 				go c.OnError(fmt.Errorf("%s", string(p)), c)
@@ -87,6 +169,10 @@ func (c *Client) ReceiveLoop() {
 			return
 		}
 
+		// MessageTypeProofUpdate is an automatic message with the
+		// delta since the last proof update, provided we have subscribed using
+		// SubscribeProofUpdates. We will call the OnProofUpdate hook with the
+		// message body.
 		if t == wire.MessageTypeProofUpdate {
 			if c.OnProofUpdate != nil {
 				go c.OnProofUpdate(p, c)
@@ -94,44 +180,182 @@ func (c *Client) ReceiveLoop() {
 			continue
 		}
 
+		// MessageTypeProof is a full proof that's been requested
+		// by the client. Hence, we try to parse it as a MPT and then send it over the
+		// proof channel. This channel is read from in the RequestProof method.
 		if t == wire.MessageTypeProof {
 			mpt, err := mpt.NewPartialMPTFromBytes(p)
 			if err != nil {
+				// Something wrong parsing the returned MPT data. Close the connection
+				// and exit the loop.
 				c.conn.Close()
 				return
 			}
+
+			// Whoever requested the proof is listening on c.proof for the result
+			// so send it there
 			c.proof <- mpt
 			continue
 		}
 
+		// MessageTypeCommitmentDetails contains the details of a single commitment.
+		// This is requested by the client using GetCommitmentDetails
 		if t == wire.MessageTypeCommitmentDetails {
 			msg, err := wire.NewCommitmentDetailsMessageFromBytes(p)
 			if err != nil {
+				// Something wrong parsing the returned commitment details.
+				// Close the connection and exit the loop.
 				c.conn.Close()
 				return
 			}
+
+			// Whoever requested the commitment details is listening on
+			// c.commitDetails for the result so send it there
 			c.commitDetails <- msg.Commitment
 			continue
 		}
 
+		// MessageTypeCommitmentHistory contains the details of all commitments
+		// (optionally since a particular commitment). This is requested by the
+		// client using GetCommitmentHistory. The server returns this as  a
+		// collection of Commitment objects.
 		if t == wire.MessageTypeCommitmentHistory {
 			msg, err := wire.NewCommitmentHistoryMessageFromBytes(p)
 			if err != nil {
+				// Something wrong parsing the returned commitment details.
+				// Close the connection and exit the loop.
 				c.conn.Close()
 				return
 			}
+			// Whoever requested the commitments is listening on
+			// c.commitHistory for the result so send it there
 			c.commitHistory <- msg.Commitments
 			continue
 		}
 	}
 }
 
+// Run will kick off the full client functionality, that also stores its key in
+// a keyfile in the user's home directory, keep track of log statements and their
+// proofs, as well as commitments and their merkle proof to the blockchain block
+// headers. This is the "complete" functionality for b_verify.
+func (c *Client) Run() {
+	var err error
+
+	// Once Run() is called, we are a full client
+	c.fullClient = true
+
+	// Create the data directory. If it exists, this will yield an error
+	// but we're ignoring that.
+	os.MkdirAll(utils.ClientDataDirectory(), 0700)
+
+	// Open the database to store commitments and logs
+	c.db, err = buntdb.Open(path.Join(utils.ClientDataDirectory(), "data.db"))
+	if err != nil {
+		panic(err)
+	}
+
+	// Configure the log level and log file path
+	logging.SetLogLevel(int(logging.LogLevelDebug))
+	logFilePath := path.Join(utils.ClientDataDirectory(), "b_verify_client.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	defer logFile.Close()
+	logging.SetLogFile(logFile)
+
+	// Load the client-side signing key from a file.
+	keyFile := path.Join(utils.ClientDataDirectory(), "privkey.hex")
+	key32 := [32]byte{}
+	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
+		// The keyfile does not exist. Let's generate a key and write it.
+		rand.Read(key32[:])
+		ioutil.WriteFile(keyFile, key32[:], 0600)
+	} else if err != nil {
+		panic(err)
+	} else {
+		key, err := ioutil.ReadFile(keyFile)
+		if err != nil {
+			panic(err)
+		}
+		copy(key32[:], key)
+	}
+
+	// Now that we have read the key we can configure the client to use
+	// these keys
+	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), key32[:])
+	var pk [33]byte
+	copy(pk[:], pub.SerializeCompressed())
+	c.keyBytes = key32[:]
+	c.pubKey = pk
+	c.key = priv
+
+	// Start the SPV process that downloads headers from the blockchain
+	go func() {
+		err := c.StartSPV()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	// Load things into memory from our database
+	c.loadStuff()
+
+	// Start the RPC server as a means to create and append to logs
+	c.rpcServer = NewRpcServer(c)
+	go func() {
+		err = c.rpcServer.Start()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	// Start the verification loop that checks server commitments against
+	// the blockchain and proofs against the commitment
+	c.verifyLoop()
+}
+
+// StartLogText is a convenience function called by the RPC server to start
+// a new log with a particular piece of information. This function will take
+// care of hashing it before passing it to StartLog. It will also keep the
+// clear text (preimage) in our database for future verification purposes.
+func (c *Client) StartLogText(initialStatement string) ([32]byte, error) {
+	statementHash := fastsha256.Sum256([]byte(initialStatement))
+
+	// Create the log using the hash
+	logId, err := c.StartLog(statementHash[:])
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	if c.fullClient {
+		// Store the preimage in the database
+		err := c.db.Update(func(dtx *buntdb.Tx) error {
+			key := fmt.Sprintf("logpreimage-%x-0", logId[:])
+			_, _, err := dtx.Set(key, initialStatement, nil)
+			return err
+		})
+		if err != nil {
+			return [32]byte{}, err
+		}
+	}
+
+	return logId, nil
+}
+
+// StartLog will start a new log on the server. It will locally calculate the
+// LogID, since that's deterministic. It will sign the CreateLog instruction
+// with the client's key and then send it to the server. It will wait for the
+// server to have acknowledged the log.
 func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 
+	// Create the message
 	l := wire.NewSignedCreateLogStatement(c.pubKey, initialStatement)
-	hash := fastsha256.Sum256(l.CreateStatement.Bytes())
-	sig, err := c.key.Sign(hash[:])
 
+	// Calculate the Log ID
+	logId := fastsha256.Sum256(l.CreateStatement.Bytes())
+
+	// Coincidentally, the logID is the same as the hash we need to sign.
+	// So here we sign that, and add the signature to the outgoing message
+	sig, err := c.key.Sign(logId[:])
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -141,6 +365,7 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 	}
 	l.Signature = csig
 
+	// Send the message to the server
 	err = c.conn.WriteMessage(wire.MessageTypeCreateLog, l.Bytes())
 	if err != nil {
 		return [32]byte{}, err
@@ -149,46 +374,127 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 	// Wait for ack
 	<-c.ack
 
-	return hash, nil
+	// If we're running as a full client, we should store the log
+	if c.fullClient {
+		err := c.db.Update(func(dtx *buntdb.Tx) error {
+			// Store the hash of the log
+			key := fmt.Sprintf("loghash-%x-000000000", logId[:])
+			_, _, err := dtx.Set(key, string(initialStatement), nil)
+			if err != nil {
+				return err
+			}
+
+			// Store the hash as "last one for this log"
+			key = fmt.Sprintf("loghash-%x-last", logId[:])
+			_, _, err = dtx.Set(key, string(initialStatement), nil)
+			if err != nil {
+				return err
+			}
+
+			// Write this marker key to allow us to enumerate all logs
+			key = fmt.Sprintf("log-%x", logId[:])
+			_, _, err = dtx.Set(key, string("1"), nil)
+			return err
+		})
+		if err != nil {
+			return [32]byte{}, err
+		}
+	}
+
+	return logId, nil
 }
 
+// RequestProof asks the server for a full proof of the passed in LogIDs. These
+// are the LogIDs returned from CreateLog() or CreateLogText(). The return value
+// is a partial MPT that only contains the paths from these logs to the root.
 func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
+	// Create the wire message and send it to the server
 	msg := wire.NewRequestProofMessage(logIds)
 	err := c.conn.WriteMessage(wire.MessageTypeRequestProof, msg.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
+	// Wait for the proof response and return it to the client
+	// TODO: Timeout?
 	proof := <-c.proof
+
 	return proof, nil
 }
 
+// SubscribeProofUpdates will tell the server that we want to receive delta
+// proofs as soon as the server commits a new value to the chain. The server
+// will then send us a ProofUpdate message automatically, which the client can
+// read out by setting a function pointer to OnProofUpdate
 func (c *Client) SubscribeProofUpdates() error {
+	// Create the wire message and send it to the server
 	err := c.conn.WriteMessage(wire.MessageTypeSubscribeProofUpdates, []byte{})
 	if err != nil {
 		return err
 	}
+
+	// Wait for the server to send us back an acknowledgement
+	// TODO: Timeout?
 	<-c.ack
 
 	return nil
 }
 
+// UnsubscribeProofUpdates will tell the server to stop sending us automatic
+// proof updates. In that case, the proofs will have to be requested manually
 func (c *Client) UnsubscribeProofUpdates() error {
+	// Create the wire message and send it to the server
 	err := c.conn.WriteMessage(wire.MessageTypeUnsubscribeProofUpdates, []byte{})
 	if err != nil {
 		return err
 	}
+	// Wait for the server to send us back an acknowledgement
+	// TODO: Timeout?
 	<-c.ack
+
+	return nil
+}
+
+// AppendLogText is a convenience function called by the RPC server to append
+// a particular piece of information to the log. This function will take
+// care of hashing it before passing it to AppendLog. It will also keep the
+// clear text (preimage) in our database for future verification purposes.
+func (c *Client) AppendLogText(idx uint64, logId [32]byte, statement string) error {
+	statementHash := fastsha256.Sum256([]byte(statement))
+
+	// Call Appendlog with the hashed statement
+	err := c.AppendLog(idx, logId, statementHash[:])
+	if err != nil {
+		return err
+	}
+
+	// If we're running as a full client, we should store the log
+	if c.fullClient {
+		// Store the preimage in our database
+		err := c.db.Update(func(dtx *buntdb.Tx) error {
+			key := fmt.Sprintf("logpreimage-%x-%09d", logId[:], idx)
+			_, _, err := dtx.Set(key, statement, nil)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
 func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
+	// Create the message
 	l, err := c.SignedAppendLog(idx, logId, statement)
 	if err != nil {
 		return err
 	}
 
+	// Calculate the hash the server will write to the log
+	serverHash := fastsha256.Sum256(l.Bytes())
+
+	// Send the message to the server
 	err = c.conn.WriteMessage(wire.MessageTypeAppendLog, l.Bytes())
 	if err != nil {
 		return err
@@ -196,12 +502,39 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 
 	// Wait for ack
 	<-c.ack
+
+	if c.fullClient {
+		err := c.db.Update(func(dtx *buntdb.Tx) error {
+			// Store the log statement hash in our data
+			key := fmt.Sprintf("loghash-%x-%09d", logId[:], idx)
+			_, _, err := dtx.Set(key, string(serverHash[:]), nil)
+			if err != nil {
+				return err
+			}
+
+			// Store the hash as "last one for this log"
+			key = fmt.Sprintf("loghash-%x-last", logId[:])
+			_, _, err = dtx.Set(key, string(serverHash[:]), nil)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
+// SignedAppendLog is a convenience function to generate a SignedLogStatement
+// message using the key in this client
 func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (*wire.SignedLogStatement, error) {
+	// Create the message
 	l := wire.NewSignedLogStatement(idx, logId, statement)
+
+	// Hash the statement, which is what we'll sign
 	hash := fastsha256.Sum256(l.Statement.Bytes())
+
+	// Sign the hash
 	sig, err := c.key.Sign(hash[:])
 	if err != nil {
 		return nil, err
@@ -210,32 +543,62 @@ func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (
 	if err != nil {
 		return nil, err
 	}
+
+	// Add the signature to the message and return it
 	l.Signature = csig
 	return l, nil
 }
 
+// GetCommitmentHistory will request the server to send over commitment details
+// for every commitment since sinceCommitment. If sinceCommitment is an empty
+// byte array, all commitments will be returned.
 func (c *Client) GetCommitmentHistory(sinceCommitment [32]byte) ([]*wire.Commitment, error) {
+	// Create the message and send it to the server
 	msg := wire.NewRequestCommitmentHistoryMessage(sinceCommitment)
 	err := c.conn.WriteMessage(wire.MessageTypeRequestCommitmentHistory, msg.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
+	// Read from the response channel and return to the client
+	// TODO: timeout?
 	hist := <-c.commitHistory
 	return hist, nil
 }
 
+// GetCommitmentDetails will request the server to send over commitment details
+// for a single commitment. If commitment is an empty byte array, the details of
+// the last commitment will be returned.
 func (c *Client) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, error) {
+	// Create the message and send it to the server
 	msg := wire.NewRequestCommitmentDetailsMessage(commitment)
 	err := c.conn.WriteMessage(wire.MessageTypeRequestCommitmentDetails, msg.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
+	// Read from the response channel and return to the client
+	// TODO: timeout?
 	details := <-c.commitDetails
 	return details, nil
 }
 
+// GetBlockHeaderByHash will return a single block header from the SPV data based on
+// the blockhash
 func (c *Client) GetBlockHeaderByHash(hash *chainhash.Hash) (*btcwire.BlockHeader, error) {
 	return c.spv.GetHeaderByBlockHash(hash)
+}
+
+func init() {
+	// The maidenHash is a fixed result of the following log statements being added to the
+	// server upon first startup:
+	//
+	// srv.RegisterLogID([32]byte{}, [33]byte{})
+	// logHash := fastsha256.Sum256([]byte("Maiden commitment for b_verify"))
+	// srv.RegisterLogStatement([32]byte{}, 0, logHash[:])
+	// srv.Commit()
+	//
+	// Every commitment chain of b_verify servers will start with this hash - which
+	// makes it very easy to recognize there were no prior commitments
+	maidenHash, _ = hex.DecodeString("523e59cfc5235b915dc89de188d87449453b083a8b7d97c1ee64d875da403361")
 }
