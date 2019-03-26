@@ -23,5 +23,8 @@ func main() {
 		panic(err)
 	}
 
-	cli.Run()
+	err = cli.Run()
+	if err != nil {
+		panic(err)
+	}
 }

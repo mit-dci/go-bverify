@@ -4,3 +4,4 @@ cmd/bench/bench
 cmd/bench/*.pprof
 cmd/bench/*.tex
 coverage.out
+mobile/Mobile.framework

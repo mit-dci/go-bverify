@@ -131,13 +131,17 @@ func (c *Client) UsesKey(key []byte) bool {
 // StartSPV will initiate the process of downloading headers from the blockchain
 // to allow us to check SPV proofs for the commitment transactions
 func (c *Client) StartSPV() error {
-	return c.spv.Start(&coinparam.RegressionNetParams)
+	return c.spv.Start(&coinparam.TestNet3Params)
 }
 
 // SPVSynced returns true if there's no more headers to fetch for us (and we can
 // assume we've synced up all the headers from the blockchain)
 func (c *Client) SPVSynced() bool {
 	return c.spv.Synced
+}
+
+func (c *Client) SPVHeight() int32 {
+	return c.spv.GetHeaderTipHeight()
 }
 
 // SPVAskHeaders will (re)initiate the header synchronization if we have the idea
@@ -246,7 +250,7 @@ func (c *Client) ReceiveLoop() {
 // a keyfile in the user's home directory, keep track of log statements and their
 // proofs, as well as commitments and their merkle proof to the blockchain block
 // headers. This is the "complete" functionality for b_verify.
-func (c *Client) Run() {
+func (c *Client) Run() error {
 	var err error
 
 	// Once Run() is called, we are a full client
@@ -259,7 +263,7 @@ func (c *Client) Run() {
 	// Open the database to store commitments and logs
 	c.db, err = buntdb.Open(path.Join(utils.ClientDataDirectory(), "data.db"))
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// Configure the log level and log file path
@@ -277,11 +281,11 @@ func (c *Client) Run() {
 		rand.Read(key32[:])
 		ioutil.WriteFile(keyFile, key32[:], 0600)
 	} else if err != nil {
-		panic(err)
+		return err
 	} else {
 		key, err := ioutil.ReadFile(keyFile)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		copy(key32[:], key)
 	}
@@ -318,6 +322,8 @@ func (c *Client) Run() {
 	// Start the verification loop that checks server commitments against
 	// the blockchain and proofs against the commitment
 	c.verifyLoop()
+
+	return nil
 }
 
 // StartLogText is a convenience function called by the RPC server to start
