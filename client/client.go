@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strconv"
 
 	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/utils"
@@ -71,6 +72,12 @@ type Client struct {
 	// with the server) or as full client (that runs checks on the commitments,
 	// fetches and caches bitcoin headers, etcetera).
 	fullClient bool
+
+	// FastMode means you can log more than once every commitment. This is achieved
+	// by forming a hash-chain of statements. The proof size will however grow linearly
+	// with the amount of statements between the commitments, you will need to include
+	// the hashes of all statements up until the next commitment
+	FastMode bool
 }
 
 // NewClientWithConnection creates a new b_verify client using the provided
@@ -371,6 +378,8 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 		return [32]byte{}, err
 	}
 
+	serverHash := fastsha256.Sum256(l.Bytes())
+
 	// Wait for ack
 	<-c.ack
 
@@ -379,14 +388,14 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 		err := c.db.Update(func(dtx *buntdb.Tx) error {
 			// Store the hash of the log
 			key := fmt.Sprintf("loghash-%x-000000000", logId[:])
-			_, _, err := dtx.Set(key, string(initialStatement), nil)
+			_, _, err := dtx.Set(key, string(serverHash[:]), nil)
 			if err != nil {
 				return err
 			}
 
-			// Store the hash as "last one for this log"
-			key = fmt.Sprintf("loghash-%x-last", logId[:])
-			_, _, err = dtx.Set(key, string(initialStatement), nil)
+			// Store the index as "last one for this log"
+			key = fmt.Sprintf("lastidx-%x", logId[:])
+			_, _, err = dtx.Set(key, "0", nil)
 			if err != nil {
 				return err
 			}
@@ -402,6 +411,37 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 	}
 
 	return logId, nil
+}
+
+// GetLastHash returns the last known hash for the given log
+func (c *Client) GetLastHash(logId [32]byte) (int64, [32]byte, error) {
+	idx := int64(-1)
+	hash := [32]byte{}
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		key := fmt.Sprintf("lastidx-%x", logId[:])
+		val, err := tx.Get(key)
+		if err != nil {
+			if err == buntdb.ErrNotFound {
+				return nil
+			}
+			return err
+		}
+
+		idx, err = strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return err
+		}
+
+		key = fmt.Sprintf("loghash-%x-%09d", logId[:], idx)
+		val, err = tx.Get(key)
+		if err != nil {
+			return err
+		}
+		copy(hash[:], []byte(val))
+
+		return nil
+	})
+	return idx, hash, err
 }
 
 // RequestProof asks the server for a full proof of the passed in LogIDs. These
@@ -484,7 +524,78 @@ func (c *Client) AppendLogText(idx uint64, logId [32]byte, statement string) err
 	return nil
 }
 
+func (c *Client) IsCommitted(logId [32]byte, idx uint64) bool {
+	committed := false
+	c.db.View(func(tx *buntdb.Tx) error {
+		key := fmt.Sprintf("logcommitment-%x-%09d", logId[:], idx)
+		val, err := tx.Get(key)
+		if err != nil {
+			return err
+		}
+		if len(val) > 0 {
+			committed = true
+		}
+		return nil
+	})
+	return committed
+}
+
+// FollowLog will keep updating the logID's proofs for the given statement
+func (c *Client) FollowLog(logId [32]byte, statementHash []byte) error {
+	return c.db.Update(func(dtx *buntdb.Tx) error {
+		// Store the hash of the log
+		key := fmt.Sprintf("loghash-%x-999999999", logId[:])
+		_, _, err := dtx.Set(key, string(statementHash[:]), nil)
+		if err != nil {
+			return err
+		}
+
+		// Write this marker key to allow us to enumerate all logs
+		key = fmt.Sprintf("log-%x", logId[:])
+		_, _, err = dtx.Set(key, string("1"), nil)
+		return err
+	})
+}
+
+// IsFollowingLog returns true when the passed LogID is merely being followed
+// by this client, and not being actively written to.
+func (c *Client) IsFollowingLog(logId [32]byte) bool {
+	isFollowing := false
+	c.db.View(func(tx *buntdb.Tx) error {
+		// Store the hash of the log
+		key := fmt.Sprintf("loghash-%x-999999999", logId[:])
+		_, err := tx.Get(key)
+		if err == nil {
+			isFollowing = true
+		}
+		return nil
+	})
+	return isFollowing
+}
+
 func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
+	if c.fullClient {
+		lastIdx, lastHash, err := c.GetLastHash(logId)
+		if err != nil {
+			return err
+		}
+		if c.FastMode {
+			// If we're in FastMode, we have to make the hashchain
+			newHash := fastsha256.Sum256(append(lastHash[:], statement...))
+			copy(statement[:], newHash[:])
+		} else {
+			// Otherwise, we check if our last statement is properly committed,
+			// we shouldn't send another statement if this isn't the case.
+			if !c.IsCommitted(logId, uint64(lastIdx)) {
+				return fmt.Errorf("Last statement has not yet been committed to chain. You have to wait for this, or use FastMode")
+			}
+		}
+
+		if idx != uint64(lastIdx+1) {
+			return fmt.Errorf("Received out-of-sync index for log [%x]: expected %d, got %d", logId, lastIdx+1, idx)
+		}
+	}
+
 	// Create the message
 	l, err := c.SignedAppendLog(idx, logId, statement)
 	if err != nil {
@@ -513,8 +624,8 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 			}
 
 			// Store the hash as "last one for this log"
-			key = fmt.Sprintf("loghash-%x-last", logId[:])
-			_, _, err = dtx.Set(key, string(serverHash[:]), nil)
+			key = fmt.Sprintf("lastidx-%x", logId[:])
+			_, _, err = dtx.Set(key, fmt.Sprintf("%d", idx), nil)
 			return err
 		})
 		if err != nil {

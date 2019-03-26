@@ -49,6 +49,11 @@ func (c *Client) updateProofs() error {
 	// Next, ensure all our logs are in the proof and the values the server
 	// reports is a value that we have written to the server at some point
 	// in history (check if the server didn't commit garbage)
+	//
+	// Store the logIdx per log so we can commit that
+
+	logIdxes := map[[32]byte]uint64{}
+
 	for _, l := range logIds {
 		// Get the LogID from the proof
 		val, err := proof.Get(l[:])
@@ -70,9 +75,17 @@ func (c *Client) updateProofs() error {
 		})
 
 		if valueIdx == -1 {
-			// We don't know about the value the server committed. This is pretty
-			// catastrophic.
+			// We don't know about the value the server committed. This is pretty catastrophic if we're the ones
+			// that are maintaining the log. Though not if we're just following it. If we are following the log,
+			// then this situation means our log's proof became invalid.
+			if c.IsFollowingLog(l) {
+				// Ignore
+				continue
+			}
+
 			return fmt.Errorf("The value in the proof does not match any of the values we know. Not good.")
+		} else {
+			logIdxes[l] = uint64(valueIdx)
 		}
 	}
 
@@ -82,6 +95,20 @@ func (c *Client) updateProofs() error {
 	return c.db.Update(func(tx *buntdb.Tx) error {
 		key := fmt.Sprintf("proof-%x", rootHash)
 		_, _, err := tx.Set(key, string(proof.Bytes()), nil)
-		return err
+		if err != nil {
+			return err
+		}
+
+		for _, l := range logIds {
+			idx, ok := logIdxes[l]
+			if ok {
+				key = fmt.Sprintf("logcommitment-%x-%09d", l[:], idx)
+				_, _, err := tx.Set(key, string(rootHash), nil)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
 }
