@@ -84,9 +84,9 @@ func NewWallet(params *chaincfg.Params, rescanBlocks int) (*Wallet, error) {
 
 	// TODO: make this configurable
 	connCfg := &rpcclient.ConnConfig{
-		Host:         "localhost:18443",
-		User:         "bverify",
-		Pass:         "bverify",
+		Host:         utils.GetEnvOrDefault("BITCOINRPC", "localhost:18443"),
+		User:         utils.GetEnvOrDefault("BITCOINRPCUSER", "bverify"),
+		Pass:         utils.GetEnvOrDefault("BITCOINRPCPASSWORD", "bverify"),
 		HTTPPostMode: true,
 		DisableTLS:   true,
 	}

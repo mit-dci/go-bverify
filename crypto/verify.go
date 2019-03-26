@@ -10,6 +10,7 @@ import (
 
 var curve *btcec.KoblitzCurve
 
+// VerifySig verifies a signature against a given plaintext and pubKey
 func VerifySig(plainText []byte, pubKey [33]byte, csig [64]byte) error {
 
 	sig := sig64.SigDecompress(csig)

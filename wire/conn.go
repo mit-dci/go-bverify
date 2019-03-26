@@ -8,19 +8,26 @@ import (
 	"sync"
 )
 
+// Connection is a wrapper around the raw net.Conn and allows to easily read
+// and write messages from/to the wire
 type Connection struct {
 	conn      net.Conn
 	writeLock sync.Mutex
 }
 
+// NewConnection creates a new Connection with the given net.Conn as underlying
+// transport
 func NewConnection(c net.Conn) *Connection {
 	return &Connection{conn: c, writeLock: sync.Mutex{}}
 }
 
+// Close closes the network connection
 func (c *Connection) Close() error {
 	return c.conn.Close()
 }
 
+// ReadNextMessage reads a type, length and then payload from the transport and
+// returns the message type and payload to the caller.
 func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	bType := make([]byte, 1)
 	bLen := make([]byte, 4)
@@ -57,6 +64,8 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	return MessageType(bType[0]), bMsg, nil
 }
 
+// WriteMessage writes a message to the transport of the given type t and payload m
+// it uses a  Mutex to prevent two threads writing at the same time.
 func (c *Connection) WriteMessage(t MessageType, m []byte) error {
 	c.writeLock.Lock()
 	bMsg := make([]byte, 5)

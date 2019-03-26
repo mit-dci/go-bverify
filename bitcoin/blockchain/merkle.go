@@ -5,8 +5,6 @@
 package blockchain
 
 import (
-	"bytes"
-	"fmt"
 	"math"
 
 	"github.com/mit-dci/go-bverify/bitcoin/btcutil"
@@ -152,101 +150,4 @@ func BuildMerkleTreeStore(transactions []*btcutil.Tx, witness bool) []*chainhash
 	}
 
 	return merkles
-}
-
-// ExtractWitnessCommitment attempts to locate, and return the witness
-// commitment for a block. The witness commitment is of the form:
-// SHA256(witness root || witness nonce). The function additionally returns a
-// boolean indicating if the witness root was located within any of the txOut's
-// in the passed transaction. The witness commitment is stored as the data push
-// for an OP_RETURN with special magic bytes to aide in location.
-func ExtractWitnessCommitment(tx *btcutil.Tx) ([]byte, bool) {
-	var witnessCommitment []byte
-
-	// The witness commitment *must* be located within one of the coinbase
-	// transaction's outputs.
-	if !IsCoinBase(tx) {
-		return witnessCommitment, false
-	}
-
-	msgTx := tx.MsgTx()
-	witFound := false
-	for i := len(msgTx.TxOut) - 1; i >= 0; i-- {
-		// The public key script that contains the witness commitment
-		// must shared a prefix with the WitnessMagicBytes, and be at
-		// least 38 bytes.
-		pkScript := msgTx.TxOut[i].PkScript
-		if len(pkScript) >= 38 &&
-			bytes.HasPrefix(pkScript, WitnessMagicBytes) {
-
-			// The witness commitment itself is a 32-byte hash
-			// directly after the WitnessMagicBytes. The remaining
-			// bytes beyond the 38th byte currently have no consensus
-			// meaning.
-			witnessCommitment = msgTx.TxOut[i].PkScript[6:38]
-			witFound = true
-			break
-		}
-	}
-
-	return witnessCommitment, witFound
-}
-
-// ValidateWitnessCommitment validates the witness commitment (if any) found
-// within the coinbase transaction of the passed block.
-func ValidateWitnessCommitment(blk *btcutil.Block) error {
-	coinbaseTx := blk.Transactions()[0]
-	witnessCommitment, witnessFound := ExtractWitnessCommitment(coinbaseTx)
-
-	// If we can't find a witness commitment in any of the coinbase's
-	// outputs, then the block MUST NOT contain any transactions with
-	// witness data.
-	if !witnessFound {
-		for _, tx := range blk.Transactions() {
-			msgTx := tx.MsgTx()
-			if msgTx.HasWitness() {
-				str := fmt.Sprintf("block contains transaction with witness" +
-					" data, yet no witness commitment present")
-				return ruleError(ErrUnexpectedWitness, str)
-			}
-		}
-		return nil
-	}
-
-	// At this point the block contains a witness commitment, so the
-	// coinbase transaction MUST have exactly one witness element within
-	// its witness data and that element must be exactly
-	// CoinbaseWitnessDataLen bytes.
-	coinbaseWitness := coinbaseTx.MsgTx().TxIn[0].Witness
-	if len(coinbaseWitness) != 1 {
-		str := fmt.Sprintf("the coinbase transaction has %d items in "+
-			"its witness stack when only one is allowed",
-			len(coinbaseWitness))
-		return ruleError(ErrInvalidWitnessCommitment, str)
-	}
-	witnessNonce := coinbaseWitness[0]
-	if len(witnessNonce) != CoinbaseWitnessDataLen {
-		str := fmt.Sprintf("the coinbase transaction witness nonce "+
-			"has %d bytes when it must be %d bytes",
-			len(witnessNonce), CoinbaseWitnessDataLen)
-		return ruleError(ErrInvalidWitnessCommitment, str)
-	}
-
-	// Finally, with the preliminary checks out of the way, we can check if
-	// the extracted witnessCommitment is equal to:
-	// SHA256(witnessMerkleRoot || witnessNonce). Where witnessNonce is the
-	// coinbase transaction's only witness item.
-	witnessMerkleTree := BuildMerkleTreeStore(blk.Transactions(), true)
-	witnessMerkleRoot := witnessMerkleTree[len(witnessMerkleTree)-1]
-
-	witnessPreimage := make([]byte, 64)
-	copy(witnessPreimage[:], witnessMerkleRoot[:])
-	copy(witnessPreimage[32:], witnessNonce)
-
-	if !bytes.Equal(chainhash.DoubleHashB(witnessPreimage), witnessCommitment) {
-		str := "witness commitment does not match"
-		return ruleError(ErrWitnessCommitmentMismatch, str)
-	}
-
-	return nil
 }

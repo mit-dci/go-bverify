@@ -157,3 +157,11 @@ func HashToBig(hash *chainhash.Hash) *big.Int {
 
 	return new(big.Int).SetBytes(buf[:])
 }
+
+func GetEnvOrDefault(evar string, def string) string {
+	val := os.Getenv(evar)
+	if val == "" {
+		return def
+	}
+	return val
+}

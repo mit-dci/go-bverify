@@ -9,15 +9,25 @@ import (
 	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 )
 
+// Commitment contains all the properties of a commitment the server
+// made and can be used to verify the validity of the commitment
 type Commitment struct {
-	Commitment             [32]byte
-	TxHash                 *chainhash.Hash
+	// The hash we're committing
+	Commitment [32]byte
+	// The hash of the transaction containing our commitment
+	TxHash *chainhash.Hash
+	// The blockheight on the server at the time of commitment
 	TriggeredAtBlockHeight int
-	IncludedInBlock        *chainhash.Hash
-	MerkleProof            utils.MerkleProof
-	RawTx                  []byte
+	// The hash of the block in which the commitment was included
+	IncludedInBlock *chainhash.Hash
+	// The merkle proof of inclusion of the commitment transaction in the block
+	MerkleProof utils.MerkleProof
+	// The full transaction (client can recalculate the hash to ensure it is
+	// the right transaction and it actually contains the commitment)
+	RawTx []byte
 }
 
+// Bytes serializes a commitment object into a byte slice
 func (c *Commitment) Bytes() []byte {
 	var b bytes.Buffer
 	b.Write(c.Commitment[:])
@@ -40,6 +50,7 @@ func (c *Commitment) Bytes() []byte {
 	return b.Bytes()
 }
 
+// CommitmentFromBytes deserializes a byte slice into a commitment object
 func CommitmentFromBytes(b []byte) *Commitment {
 	c := Commitment{}
 	buf := bytes.NewBuffer(b)
@@ -64,6 +75,8 @@ func CommitmentFromBytes(b []byte) *Commitment {
 	return &c
 }
 
+// NewCommitment is a convenience function for creating a new commitment that isn't
+// mined yet (hence the absence of parameters for blockhash)
 func NewCommitment(c [32]byte, txhash *chainhash.Hash, rawTx []byte, triggerHeight int) *Commitment {
 	return &Commitment{Commitment: c, TxHash: txhash, RawTx: rawTx, TriggeredAtBlockHeight: triggerHeight}
 }

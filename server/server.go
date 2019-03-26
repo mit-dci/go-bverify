@@ -181,7 +181,14 @@ func (srv *Server) Run() error {
 		defer logFile.Close()
 		logging.SetLogFile(logFile)
 
-		srv.wallet, err = wallet.NewWallet(&chaincfg.RegressionNetParams, srv.RescanBlocks)
+		params := &chaincfg.RegressionNetParams
+		if utils.GetEnvOrDefault("BITCOINNET", "regtest") == "testnet" {
+			params = &chaincfg.TestNet3Params
+		} else if utils.GetEnvOrDefault("BITCOINNET", "regtest") == "mainnet" {
+			params = &chaincfg.MainNetParams
+		}
+
+		srv.wallet, err = wallet.NewWallet(params, srv.RescanBlocks)
 		if err != nil {
 			return err
 		}

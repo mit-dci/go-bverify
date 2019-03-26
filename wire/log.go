@@ -7,27 +7,33 @@ import (
 	"github.com/mit-dci/go-bverify/crypto"
 )
 
+// SignedCreateLogStatement is a log creation message including a signature
 type SignedCreateLogStatement struct {
 	Signature       [64]byte
 	CreateStatement *CreateLogStatement
 }
 
+// CreateLogStatement is an unsigned log creation message
 type CreateLogStatement struct {
 	ControllingKey   [33]byte
 	InitialStatement []byte
 }
 
+// SignedLogStatement is a log append message including a signature
 type SignedLogStatement struct {
 	Signature [64]byte
 	Statement *LogStatement
 }
 
+// LogStatement is an unsigned log append message
 type LogStatement struct {
 	LogID     [32]byte
 	Index     uint64
 	Statement []byte
 }
 
+// NewSignedCreateLogStatement is a convenience function for creating a new
+// SignedCreateLogStatement without the signature filled in
 func NewSignedCreateLogStatement(controllingKey [33]byte, initialStatement []byte) *SignedCreateLogStatement {
 	ret := new(SignedCreateLogStatement)
 	ret.CreateStatement = new(CreateLogStatement)
@@ -36,6 +42,8 @@ func NewSignedCreateLogStatement(controllingKey [33]byte, initialStatement []byt
 	return ret
 }
 
+// NewSignedLogStatement is a convenience function for creating a new
+// SignedLogStatement without the signature filled in
 func NewSignedLogStatement(index uint64, logID [32]byte, statement []byte) *SignedLogStatement {
 	ret := new(SignedLogStatement)
 	ret.Statement = new(LogStatement)
@@ -45,6 +53,7 @@ func NewSignedLogStatement(index uint64, logID [32]byte, statement []byte) *Sign
 	return ret
 }
 
+// Bytes serializes a LogStatement to a byte slice
 func (ls *LogStatement) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.Write(ls.LogID[:])
@@ -53,6 +62,7 @@ func (ls *LogStatement) Bytes() []byte {
 	return buf.Bytes()
 }
 
+// Bytes serializes a SignedLogStatement to a byte slice
 func (sls *SignedLogStatement) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.Write(sls.Signature[:])
@@ -60,6 +70,7 @@ func (sls *SignedLogStatement) Bytes() []byte {
 	return buf.Bytes()
 }
 
+// Bytes serializes a CreateLogStatement to a byte slice
 func (cls *CreateLogStatement) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.Write(cls.ControllingKey[:])
@@ -67,6 +78,7 @@ func (cls *CreateLogStatement) Bytes() []byte {
 	return buf.Bytes()
 }
 
+// Bytes serializes a SignedCreateLogStatement to a byte slice
 func (scls *SignedCreateLogStatement) Bytes() []byte {
 	var buf bytes.Buffer
 	buf.Write(scls.Signature[:])
@@ -74,6 +86,8 @@ func (scls *SignedCreateLogStatement) Bytes() []byte {
 	return buf.Bytes()
 }
 
+// NewLogStatementFromBytes deserializes a byte slice into a
+// LogStatement
 func NewLogStatementFromBytes(b []byte) (*LogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	ls := new(LogStatement)
@@ -91,6 +105,8 @@ func NewLogStatementFromBytes(b []byte) (*LogStatement, error) {
 	return ls, nil
 }
 
+// NewSignedLogStatementFromBytes deserializes a byte slice into a
+// SignedLogStatement
 func NewSignedLogStatementFromBytes(b []byte) (*SignedLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	sls := new(SignedLogStatement)
@@ -109,6 +125,8 @@ func NewSignedLogStatementFromBytes(b []byte) (*SignedLogStatement, error) {
 	return sls, nil
 }
 
+// NewCreateLogStatementFromBytes deserializes a byte slice into a
+// CreateLogStatement
 func NewCreateLogStatementFromBytes(b []byte) (*CreateLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	cls := new(CreateLogStatement)
@@ -127,6 +145,8 @@ func NewCreateLogStatementFromBytes(b []byte) (*CreateLogStatement, error) {
 	return cls, nil
 }
 
+// NewSignedCreateLogStatementFromBytes deserializes a byte slice into a
+// SignedCreateLogStatement
 func NewSignedCreateLogStatementFromBytes(b []byte) (*SignedCreateLogStatement, error) {
 	buf := bytes.NewBuffer(b)
 	scls := new(SignedCreateLogStatement)
@@ -144,10 +164,14 @@ func NewSignedCreateLogStatementFromBytes(b []byte) (*SignedCreateLogStatement, 
 	return scls, nil
 }
 
+// VerifySignature will verify if the signature in this SignedCreateLogStatement
+// is valid
 func (scls *SignedCreateLogStatement) VerifySignature() error {
 	return crypto.VerifySig(scls.CreateStatement.Bytes(), scls.CreateStatement.ControllingKey, scls.Signature)
 }
 
+// VerifySignature will verify if the signature in this SignedLogStatement
+// is valid
 func (sls *SignedLogStatement) VerifySignature(controllingPubKey [33]byte) error {
 	return crypto.VerifySig(sls.Statement.Bytes(), controllingPubKey, sls.Signature)
 }
