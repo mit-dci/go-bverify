@@ -9,8 +9,6 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/mit-dci/go-bverify/crypto/fastsha256"
-	"github.com/mit-dci/go-bverify/crypto/sig64"
 	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/wire"
 
@@ -323,64 +321,11 @@ func (s *RpcServer) Export(w http.ResponseWriter, r *http.Request) {
 	logId32 := [32]byte{}
 	copy(logId32[:], logIdHex)
 
-	idx, _, err := s.cli.GetLastCommittedLog(logId32)
+	fs, err := s.cli.ExportLog(logId32)
 	if err != nil {
-		s.writeError(w, fmt.Errorf("Error fetching last committed log: %s", err.Error()))
+		s.writeError(w, fmt.Errorf("Unable to export log: %s", err.Error()))
 		return
 	}
-
-	if s.cli.IsForeignLog(logId32) {
-		s.writeError(w, fmt.Errorf("Cannot export a foreign log. The original sender should export it."))
-		return
-	}
-
-	fs := &wire.ForeignStatement{}
-	fs.Index = uint64(idx)
-	fs.InitialStatement = (idx == 0)
-	fs.LogID = logId32
-	fs.StatementPreimage, err = s.cli.GetLogPreimage(logId32, uint64(idx))
-	if err != nil {
-		s.writeError(w, fmt.Errorf("Error fetching last committed statement: %s", err.Error()))
-		return
-	}
-	fs.PubKey = s.cli.pubKey
-
-	commitment, err := s.cli.GetLogCommitment(logId32, uint64(idx))
-	if err != nil {
-		s.writeError(w, fmt.Errorf("Error fetching commitment hash for last committed statement: %s", err.Error()))
-		return
-	}
-
-	proof, err := s.cli.GetProofForCommitment(commitment, [][]byte{logIdHex})
-	if err != nil {
-		s.writeError(w, fmt.Errorf("Error fetching commitment hash for last committed statement: %s", err.Error()))
-		return
-	}
-
-	fs.Proof = proof
-
-	// Recreate signature. Maybe this is somewhat ugly, but... figure it out later
-	statementHash := fastsha256.Sum256([]byte(fs.StatementPreimage))
-	signaturePayload := []byte{}
-	if fs.InitialStatement {
-		signaturePayload = wire.NewSignedCreateLogStatement(fs.PubKey, statementHash[:]).CreateStatement.Bytes()
-	} else {
-		signaturePayload = wire.NewSignedLogStatement(uint64(fs.Index), logId32, statementHash[:]).Statement.Bytes()
-	}
-	signatureHash := fastsha256.Sum256(signaturePayload)
-	sig, err := s.cli.key.Sign(signatureHash[:])
-	if err != nil {
-		s.writeError(w, fmt.Errorf("Could not recreate signature: %s", err.Error()))
-		return
-	}
-
-	csig, err := sig64.SigCompress(sig.Serialize())
-	if err != nil {
-		s.writeError(w, fmt.Errorf("Could not compress signature: %s", err.Error()))
-		return
-	}
-
-	fs.Signature = csig
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)

@@ -969,3 +969,62 @@ func (c *Client) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, er
 func (c *Client) GetBlockHeaderByHash(hash *chainhash.Hash) (*btcwire.BlockHeader, error) {
 	return c.spv.GetHeaderByBlockHash(hash)
 }
+
+// ExportLog will create a ForeignStatement out of the last committed statement in the given
+// log
+func (c *Client) ExportLog(logId [32]byte) (*wire.ForeignStatement, error) {
+	idx, _, err := c.GetLastCommittedLog(logId)
+	if err != nil {
+		return nil, fmt.Errorf("Error fetching last committed log: %s", err.Error())
+	}
+
+	if c.IsForeignLog(logId) {
+		return nil, fmt.Errorf("Cannot export a foreign log. The original sender should export it.")
+	}
+
+	fs := &wire.ForeignStatement{}
+	fs.Index = uint64(idx)
+	fs.InitialStatement = (idx == 0)
+	fs.LogID = logId
+	fs.StatementPreimage, err = c.GetLogPreimage(logId, uint64(idx))
+	if err != nil {
+		return nil, fmt.Errorf("Error fetching last committed statement: %s", err.Error())
+	}
+	fs.PubKey = c.pubKey
+
+	commitment, err := c.GetLogCommitment(logId, uint64(idx))
+	if err != nil {
+		return nil, fmt.Errorf("Error fetching commitment hash for last committed statement: %s", err.Error())
+	}
+
+	proof, err := c.GetProofForCommitment(commitment, [][]byte{logId[:]})
+	if err != nil {
+		return nil, fmt.Errorf("Error fetching commitment hash for last committed statement: %s", err.Error())
+	}
+
+	fs.Proof = proof
+
+	// Recreate signature. Maybe this is somewhat ugly, but... figure it out later
+	statementHash := fastsha256.Sum256([]byte(fs.StatementPreimage))
+	signaturePayload := []byte{}
+	if fs.InitialStatement {
+		signaturePayload = wire.NewSignedCreateLogStatement(fs.PubKey, statementHash[:]).CreateStatement.Bytes()
+	} else {
+		signaturePayload = wire.NewSignedLogStatement(uint64(fs.Index), logId, statementHash[:]).Statement.Bytes()
+	}
+	signatureHash := fastsha256.Sum256(signaturePayload)
+	sig, err := c.key.Sign(signatureHash[:])
+	if err != nil {
+		return nil, fmt.Errorf("Could not recreate signature: %s", err.Error())
+
+	}
+
+	csig, err := sig64.SigCompress(sig.Serialize())
+	if err != nil {
+		return nil, fmt.Errorf("Could not compress signature: %s", err.Error())
+	}
+
+	fs.Signature = csig
+
+	return fs, nil
+}
