@@ -21,7 +21,12 @@ func (c *Client) updateProofs() error {
 	// First, create an array of all the logIDs we are keeping in this client
 	logIds, err := c.GetAllLogIDs()
 	if err != nil {
-		return err
+		return fmt.Errorf("Error fetching logIDs: %s", err.Error())
+	}
+
+	if len(logIds) == 0 {
+		logging.Debugf("Haven't created any logs yet, so no need to fetch proofs")
+		return nil
 	}
 
 	// Request the proofs from the server
@@ -35,7 +40,7 @@ func (c *Client) updateProofs() error {
 	rootHash := proof.Commitment()
 	_, err = c.getCommitment(rootHash)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error fetching commitment: %s", err.Error())
 	}
 
 	logging.Debugf("Commitment %x is known to us and valid", rootHash)
@@ -52,7 +57,7 @@ func (c *Client) updateProofs() error {
 		// Get the LogID from the proof
 		val, err := proof.Get(l[:])
 		if err != nil {
-			return err
+			return fmt.Errorf("Error getting Log ID %x from the proof: %s", l, err)
 		}
 
 		// Find the witness value in our history of values
@@ -92,7 +97,7 @@ func (c *Client) updateProofs() error {
 		key := fmt.Sprintf("proof-%x", rootHash)
 		_, _, err := tx.Set(key, string(proof.Bytes()), nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error saving proof: %s", err)
 		}
 
 		for _, l := range logIds {
@@ -101,7 +106,7 @@ func (c *Client) updateProofs() error {
 				key = fmt.Sprintf("logcommitment-%x-%09d", l[:], idx)
 				_, _, err := tx.Set(key, string(rootHash), nil)
 				if err != nil {
-					return err
+					return fmt.Errorf("Error saving logcommitment: %s", err)
 				}
 			}
 		}

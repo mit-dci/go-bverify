@@ -84,6 +84,9 @@ type Client struct {
 	// the hashes of all statements up until the next commitment
 	FastMode bool
 
+	// Ready indicates the client is ready to serve commands (only relevant for FullClient)
+	Ready bool
+
 	// When connecting using NewClient() the address is kept. When there's a failure
 	// the server will disconnect us for, it will automatically reconnect.
 	ReconnectOnFailure bool
@@ -383,6 +386,8 @@ func (c *Client) Run(resync bool) error {
 			panic(err)
 		}
 	}()
+
+	c.Ready = true
 
 	// Start the verification loop that checks server commitments against
 	// the blockchain and proofs against the commitment

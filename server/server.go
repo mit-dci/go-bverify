@@ -312,7 +312,10 @@ func (srv *Server) Run() error {
 }
 
 func (srv *Server) blockWatcher(wc chan *btcwire.MsgBlock) {
-	for block := range wc {
+	for {
+		block := <-wc
+
+		logging.Debugf("Received new block in blockwatcher")
 
 		// check if our last commit is in here
 		err := srv.processMerkleProofs(block)

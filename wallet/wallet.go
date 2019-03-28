@@ -255,10 +255,13 @@ func (w *Wallet) Balance() uint64 {
 }
 
 func (w *Wallet) processBlock(block *wire.MsgBlock) error {
-	for _, nbl := range w.newBlockListeners {
+	logging.Debugf("Sending block to %d listeners", len(w.newBlockListeners))
+	for i, nbl := range w.newBlockListeners {
 		select {
 		case nbl <- block:
+			logging.Debugf("Block accepted by listener channel %d", i)
 		default:
+			logging.Debugf("Block dropped for listener channel %d", i)
 		}
 	}
 
