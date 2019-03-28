@@ -526,12 +526,13 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			c.MerkleProof = proof
 			blockHash := block.BlockHash()
 			c.IncludedInBlock = &blockHash
-			srv.saveCommitment(c)
 
 			if bytes.Equal(srv.lastCommitment[:], c.Commitment[:]) {
 				srv.LastConfirmedCommitMpt, _ = mpt.NewFullMPTFromBytes(srv.LastCommitMpt.Bytes())
 				srv.commitState()
 			}
+
+			srv.saveCommitment(c)
 		} else {
 			logging.Debugf("Commitment %x is not in block", c.Commitment)
 		}
