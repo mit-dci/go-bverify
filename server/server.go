@@ -683,6 +683,9 @@ func (srv *Server) loadState() error {
 }
 
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
+	if srv.LastConfirmedCommitMpt == nil {
+		return nil, fmt.Errorf("There has not yet been a confirmed commitment, please try again later")
+	}
 	return mpt.NewPartialMPTIncludingKeys(srv.LastConfirmedCommitMpt, keys)
 }
 
