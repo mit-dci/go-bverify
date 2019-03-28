@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 
+	"github.com/mit-dci/go-bverify/logging"
+
 	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 )
 
