@@ -326,6 +326,11 @@ func (srv *Server) loadCommitments() {
 
 	logging.Debugf("Loaded %d previous commitments", len(srv.commitments))
 
+	// Sort in right order
+	sort.Slice(srv.commitments, func(i, j int) bool {
+		return srv.commitments[i].TriggeredAtBlockHeight < srv.commitments[j].TriggeredAtBlockHeight
+	})
+
 	for _, c := range srv.commitments {
 		if c.TriggeredAtBlockHeight > srv.LastCommitHeight {
 			srv.LastCommitHeight = c.TriggeredAtBlockHeight
@@ -604,12 +609,6 @@ func (srv *Server) GetCommitmentHistory(sinceCommitment [32]byte) []*wire.Commit
 
 		}
 	}
-
-	// Return the commitments chronologically
-	sort.Slice(commitments, func(i, j int) bool {
-		return commitments[i].TriggeredAtBlockHeight < commitments[j].TriggeredAtBlockHeight
-	})
-
 	return commitments
 }
 
