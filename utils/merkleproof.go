@@ -57,9 +57,18 @@ func NewMerkleProofFromBytes(b []byte) MerkleProof {
 // and the expected root hash (expectedRoot). Will return true when the merkle proof
 // is valid, false otherwise.
 func (proof MerkleProof) Check(hash, expectedRoot *chainhash.Hash) bool {
+
+	logging.Debugf("Checking merkle proof: [%x] to [%x]", hash[:], expectedRoot[:])
+
 	treeHeight := uint(len(proof.Hashes))
+
+	logging.Debugf("treeHeight is %d", treeHeight)
+
 	hashIdx := proof.Position
+
+	logging.Debugf("Proof position is %d", hashIdx)
 	for _, h := range proof.Hashes {
+		logging.Debugf("Adding hash [%x]", h[:])
 		var newHash chainhash.Hash
 		if hashIdx&1 == 1 {
 			newHash = chainhash.DoubleHashH(append(h[:], hash[:]...))
@@ -69,6 +78,8 @@ func (proof MerkleProof) Check(hash, expectedRoot *chainhash.Hash) bool {
 		hash = &newHash
 		hashIdx = (hashIdx >> 1) | (1 << treeHeight)
 	}
+
+	logging.Debugf("Final merkle proof: [%x] vs [%x]", hash[:], expectedRoot[:])
 
 	return bytes.Equal(hash[:], expectedRoot[:])
 }
