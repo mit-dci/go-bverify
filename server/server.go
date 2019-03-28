@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"sort"
 	"sync"
 	"time"
 
@@ -603,6 +604,12 @@ func (srv *Server) GetCommitmentHistory(sinceCommitment [32]byte) []*wire.Commit
 
 		}
 	}
+
+	// Return the commitments chronologically
+	sort.Slice(commitments, func(i, j int) bool {
+		return commitments[i].TriggeredAtBlockHeight < commitments[j].TriggeredAtBlockHeight
+	})
+
 	return commitments
 }
 

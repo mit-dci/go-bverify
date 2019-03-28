@@ -64,7 +64,8 @@ func (c *Client) getCommitment(hash []byte) (*wire.Commitment, error) {
 // verifyCommitment will check a commitment's validity. It will verify the
 // validity of the commitment transaction
 func (c *Client) verifyCommitment(comm *wire.Commitment) error {
-	logging.Debugf("Verifying commitment %x (block %x)", comm.Commitment, comm.IncludedInBlock[:])
+	logging.Debugf("Verifying commitment %x (block %s)", comm.Commitment, comm.IncludedInBlock.String())
+	logging.Debugf("Transaction is %s", comm.TxHash.String())
 
 	// First and foremost, check if the block specified by the server is actually
 	// known to us in the header chain.
