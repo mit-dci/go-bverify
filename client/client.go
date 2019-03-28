@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/utils"
@@ -49,6 +50,7 @@ type Client struct {
 	// Channels for receiving replies from the server from
 	// the receive loop
 	ack           chan bool
+	errChan       chan error
 	proof         chan *mpt.PartialMPT
 	commitDetails chan *wire.Commitment
 	commitHistory chan []*wire.Commitment
@@ -60,6 +62,9 @@ type Client struct {
 
 	// The local data stored by the client
 	db *buntdb.DB
+
+	// The address we connected to when NewClient() was used
+	addr string
 
 	// The simple HTTP RPC server you can use to write
 	// new logs and statements
@@ -78,6 +83,10 @@ type Client struct {
 	// with the amount of statements between the commitments, you will need to include
 	// the hashes of all statements up until the next commitment
 	FastMode bool
+
+	// When connecting using NewClient() the address is kept. When there's a failure
+	// the server will disconnect us for, it will automatically reconnect.
+	ReconnectOnFailure bool
 }
 
 // NewClientWithConnection creates a new b_verify client using the provided
@@ -98,10 +107,11 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 		keyBytes:      key,
 		key:           priv,
 		pubKey:        pk,
-		commitDetails: make(chan *wire.Commitment, 1),
-		commitHistory: make(chan []*wire.Commitment, 1),
-		proof:         make(chan *mpt.PartialMPT, 1),
-		ack:           make(chan bool, 1),
+		commitDetails: make(chan *wire.Commitment),
+		commitHistory: make(chan []*wire.Commitment),
+		proof:         make(chan *mpt.PartialMPT),
+		ack:           make(chan bool),
+		errChan:       make(chan error),
 		fullClient:    false,
 	}
 
@@ -118,7 +128,13 @@ func NewClient(key []byte, addr string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewClientWithConnection(key, c)
+	cli, err := NewClientWithConnection(key, c)
+	if err != nil {
+		return nil, err
+	}
+	cli.ReconnectOnFailure = true
+	cli.addr = addr
+	return cli, nil
 }
 
 // UsesKey return true if this client is using the key passed in. We don't
@@ -151,15 +167,34 @@ func (c *Client) SPVAskHeaders() error {
 	return c.spv.AskForHeaders()
 }
 
+func (c *Client) Reconnect() {
+	logging.Debug("Reconnecting to server")
+	newConn, err := net.Dial("tcp", c.addr)
+	if err != nil {
+		logging.Errorf("Could not reconnect to server: %s", err.Error())
+		go func(cli *Client) {
+			time.Sleep(5 * time.Second)
+			cli.Reconnect()
+		}(c)
+		return
+	}
+	c.conn = wire.NewConnection(newConn)
+	go c.ReceiveLoop()
+}
+
 // ReceiveLoop will fetch new messages as they come in on the wire (from the server)
 // and try to process them accordingly.
 func (c *Client) ReceiveLoop() {
 	for {
 		t, p, err := c.conn.ReadNextMessage()
 		if err != nil {
+			logging.Debugf("Error reading message from server connection: %s", err.Error())
 			// If we can't read from this transport anymore, or we receive invalid
 			// data, we should close the connection and exit the receive loop
 			c.conn.Close()
+			if c.ReconnectOnFailure {
+				c.Reconnect()
+			}
 			return
 		}
 
@@ -167,15 +202,29 @@ func (c *Client) ReceiveLoop() {
 		// client functions that expect an ack will wait by reading from this
 		// channel
 		if t == wire.MessageTypeAck {
-			c.ack <- true
+			select {
+			case c.ack <- true:
+			default:
+				logging.Warn("Received ACK when no one was listening for it")
+			}
 			continue
 		}
 
 		// If we receive an error from the server, we should call the OnError
 		// hook if it's set, and then exit the receive loop
 		if t == wire.MessageTypeError {
+			err := fmt.Errorf("%s", string(p))
+			logging.Debugf("Received error on wire: %s", err.Error())
 			if c.OnError != nil {
-				go c.OnError(fmt.Errorf("%s", string(p)), c)
+				go c.OnError(err, c)
+			}
+			select {
+			case c.errChan <- err:
+			default:
+			}
+			c.conn.Close()
+			if c.ReconnectOnFailure {
+				c.Reconnect()
 			}
 			return
 		}
@@ -205,7 +254,10 @@ func (c *Client) ReceiveLoop() {
 
 			// Whoever requested the proof is listening on c.proof for the result
 			// so send it there
-			c.proof <- mpt
+			select {
+			case c.proof <- mpt:
+			default:
+			}
 			continue
 		}
 
@@ -222,7 +274,10 @@ func (c *Client) ReceiveLoop() {
 
 			// Whoever requested the commitment details is listening on
 			// c.commitDetails for the result so send it there
-			c.commitDetails <- msg.Commitment
+			select {
+			case c.commitDetails <- msg.Commitment:
+			default:
+			}
 			continue
 		}
 
@@ -240,7 +295,10 @@ func (c *Client) ReceiveLoop() {
 			}
 			// Whoever requested the commitments is listening on
 			// c.commitHistory for the result so send it there
-			c.commitHistory <- msg.Commitments
+			select {
+			case c.commitHistory <- msg.Commitments:
+			default:
+			}
 			continue
 		}
 	}
@@ -394,7 +452,13 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 	serverHash := fastsha256.Sum256(l.Bytes())
 
 	// Wait for ack
-	<-c.ack
+	select {
+	case <-c.ack:
+	case err = <-c.errChan:
+		return [32]byte{}, err
+	case <-time.After(10 * time.Second):
+		return [32]byte{}, fmt.Errorf("Timeout waiting for ACK")
+	}
 
 	// If we're running as a full client, we should store the log
 	if c.fullClient {
@@ -584,9 +648,14 @@ func (c *Client) SubscribeProofUpdates() error {
 		return err
 	}
 
-	// Wait for the server to send us back an acknowledgement
-	// TODO: Timeout?
-	<-c.ack
+	// Wait for ack
+	select {
+	case <-c.ack:
+	case err = <-c.errChan:
+		return err
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("Timeout waiting for ACK")
+	}
 
 	return nil
 }
@@ -599,9 +668,15 @@ func (c *Client) UnsubscribeProofUpdates() error {
 	if err != nil {
 		return err
 	}
-	// Wait for the server to send us back an acknowledgement
-	// TODO: Timeout?
-	<-c.ack
+
+	// Wait for ack
+	select {
+	case <-c.ack:
+	case err = <-c.errChan:
+		return err
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("Timeout waiting for ACK")
+	}
 
 	return nil
 }
@@ -801,7 +876,13 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 	}
 
 	// Wait for ack
-	<-c.ack
+	select {
+	case <-c.ack:
+	case err = <-c.errChan:
+		return err
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("Timeout waiting for ACK")
+	}
 
 	if c.fullClient {
 		err := c.db.Update(func(dtx *buntdb.Tx) error {
