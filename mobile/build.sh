@@ -1,3 +1,3 @@
 #!/bin/bash
 gomobile bind -target=ios github.com/mit-dci/go-bverify/mobile
-rm -rf ~/Documents/BVerifyClient/iOS/BVerifyClient/BVerifyClient/Mobile.framework && cp -R Mobile.framework ~/Documents/BVerifyClient/iOS/BVerifyClient/BVerifyClient
+rm -rf ~/bverify-mobile/iOS/BVerifyClient/Mobile.framework && cp -R Mobile.framework ~/bverify-mobile/iOS/BVerifyClient

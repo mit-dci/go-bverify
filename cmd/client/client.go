@@ -12,6 +12,7 @@ func main() {
 	var err error
 	hostName := flag.String("host", "localhost", "Host to connect to")
 	hostPort := flag.Int("port", 9100, "Port to connect to")
+	resync := flag.Bool("resync", false, "Resynchronize commitments on startup")
 	flag.Parse()
 
 	// This is a fixed hash that the server will commit to first before even
@@ -23,7 +24,7 @@ func main() {
 		panic(err)
 	}
 
-	err = cli.Run()
+	err = cli.Run(*resync)
 	if err != nil {
 		panic(err)
 	}

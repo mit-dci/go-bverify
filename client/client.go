@@ -250,7 +250,7 @@ func (c *Client) ReceiveLoop() {
 // a keyfile in the user's home directory, keep track of log statements and their
 // proofs, as well as commitments and their merkle proof to the blockchain block
 // headers. This is the "complete" functionality for b_verify.
-func (c *Client) Run() error {
+func (c *Client) Run(resync bool) error {
 	var err error
 
 	// Once Run() is called, we are a full client
@@ -299,6 +299,13 @@ func (c *Client) Run() error {
 	c.pubKey = pk
 	c.key = priv
 
+	if resync {
+		err = c.ClearCommitments()
+		if err != nil {
+			return err
+		}
+	}
+
 	// Start the SPV process that downloads headers from the blockchain
 	go func() {
 		err := c.StartSPV()
@@ -342,7 +349,7 @@ func (c *Client) StartLogText(initialStatement string) ([32]byte, error) {
 	if c.fullClient {
 		// Store the preimage in the database
 		err := c.db.Update(func(dtx *buntdb.Tx) error {
-			key := fmt.Sprintf("logpreimage-%x-0", logId[:])
+			key := fmt.Sprintf("logpreimage-%x-000000000", logId[:])
 			_, _, err := dtx.Set(key, initialStatement, nil)
 			return err
 		})
@@ -450,6 +457,75 @@ func (c *Client) GetLastHash(logId [32]byte) (int64, [32]byte, error) {
 	return idx, hash, err
 }
 
+// GetLastCommittedHash returns the last committed hash for the given log
+func (c *Client) GetLastCommittedLog(logId [32]byte) (int64, [32]byte, error) {
+	idx := int64(-1)
+	hash := [32]byte{}
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		key := fmt.Sprintf("lastidx-%x", logId[:])
+		val, err := tx.Get(key)
+		if err != nil {
+			if err == buntdb.ErrNotFound {
+				return nil
+			}
+			return err
+		}
+
+		idx, err = strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	for {
+		if idx < 0 {
+			return -1, hash, fmt.Errorf("No committed hash found")
+		}
+
+		if c.IsCommitted(logId, uint64(idx)) {
+			val := ""
+			err = c.db.View(func(tx *buntdb.Tx) error {
+				key := fmt.Sprintf("loghash-%x-%09d", logId[:], idx)
+				val, err = tx.Get(key)
+				if err != nil {
+					return err
+				}
+				copy(hash[:], []byte(val))
+				return nil
+			})
+			if val != "" {
+				break
+			}
+		}
+
+		idx--
+	}
+
+	return idx, hash, err
+}
+
+func (c *Client) GetLogPreimage(logId [32]byte, idx uint64) (string, error) {
+	preimage := ""
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		var err error
+		key := fmt.Sprintf("logpreimage-%x-%09d", logId[:], idx)
+		preimage, err = tx.Get(key)
+		if err != nil {
+			key := fmt.Sprintf("logpreimage-%x-%d", logId[:], idx)
+			preimage, err = tx.Get(key)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	return preimage, err
+}
+
 // RequestProof asks the server for a full proof of the passed in LogIDs. These
 // are the LogIDs returned from CreateLog() or CreateLogText(). The return value
 // is a partial MPT that only contains the paths from these logs to the root.
@@ -466,6 +542,35 @@ func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
 	proof := <-c.proof
 
 	return proof, nil
+}
+
+func (c *Client) GetAllLogIDs() ([][32]byte, error) {
+	logIds := make([][32]byte, 0)
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		tx.AscendRange("", "log-", "log.", func(key, value string) bool {
+			logId, _ := hex.DecodeString(key[4:])
+			logId32 := [32]byte{}
+			copy(logId32[:], logId)
+			logIds = append(logIds, logId32)
+			return true
+		})
+		return nil
+	})
+	return logIds, err
+}
+
+func (c *Client) GetLogCommitment(logId [32]byte, idx uint64) ([32]byte, error) {
+	commitmentHash := [32]byte{}
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		key := fmt.Sprintf("logcommitment-%x-%09d", logId[:], idx)
+		val, err := tx.Get(key)
+		if err != nil {
+			return err
+		}
+		copy(commitmentHash[:], []byte(val))
+		return nil
+	})
+	return commitmentHash, err
 }
 
 // SubscribeProofUpdates will tell the server that we want to receive delta
@@ -546,12 +651,90 @@ func (c *Client) IsCommitted(logId [32]byte, idx uint64) bool {
 	return committed
 }
 
-// FollowLog will keep updating the logID's proofs for the given statement
-func (c *Client) FollowLog(logId [32]byte, statementHash []byte) error {
+func (c *Client) GetForeignLogIDAndHash(statement *wire.ForeignStatement) ([32]byte, [32]byte, error) {
+	statementHash := fastsha256.Sum256([]byte(statement.StatementPreimage))
+	hash := [32]byte{}
+	logId := [32]byte{}
+	if statement.InitialStatement {
+		s := &wire.SignedCreateLogStatement{
+			CreateStatement: &wire.CreateLogStatement{
+				ControllingKey:   statement.PubKey,
+				InitialStatement: statementHash[:],
+			},
+			Signature: statement.Signature,
+		}
+
+		err := s.VerifySignature()
+		if err != nil {
+			return logId, hash, err
+		}
+
+		logId = fastsha256.Sum256(s.CreateStatement.Bytes())
+		hash = fastsha256.Sum256(s.Bytes())
+	} else {
+		s := &wire.SignedLogStatement{
+			Statement: &wire.LogStatement{
+				Index:     statement.Index,
+				LogID:     statement.LogID,
+				Statement: statementHash[:],
+			},
+			Signature: statement.Signature,
+		}
+
+		err := s.VerifySignature(statement.PubKey)
+		if err != nil {
+			return logId, hash, err
+		}
+
+		logId = statement.LogID
+		hash = fastsha256.Sum256(s.Bytes())
+	}
+	return logId, hash, nil
+}
+
+// AddForeignLog will keep updating the logID's proofs for the given statement
+func (c *Client) AddForeignLog(statement *wire.ForeignStatement) error {
+	logId, hash, err := c.GetForeignLogIDAndHash(statement)
+	if err != nil {
+		return err
+	}
 	return c.db.Update(func(dtx *buntdb.Tx) error {
+
 		// Store the hash of the log
 		key := fmt.Sprintf("loghash-%x-999999999", logId[:])
-		_, _, err := dtx.Set(key, string(statementHash[:]), nil)
+		_, _, err := dtx.Set(key, string(hash[:]), nil)
+		if err != nil {
+			return err
+		}
+
+		key = fmt.Sprintf("lastidx-%x", logId[:])
+		_, _, err = dtx.Set(key, "999999999", nil)
+		if err != nil {
+			return err
+		}
+
+		// Store the proof (if it's in this foreign statement)
+		if statement.Proof != nil {
+
+			// Store the commitment
+			key = fmt.Sprintf("logcommitment-%x-999999999", logId[:])
+			_, _, err = dtx.Set(key, string(statement.Proof.Commitment()), nil)
+			if err != nil {
+				return err
+			}
+
+			// Store the proof
+			key = fmt.Sprintf("foreignlogproof-%x-999999999", logId[:])
+			_, _, err = dtx.Set(key, string(statement.Proof.Bytes()), nil)
+			if err != nil {
+				return err
+			}
+
+		}
+
+		// Store the preimage of the log
+		key = fmt.Sprintf("logpreimage-%x-999999999", logId[:])
+		_, _, err = dtx.Set(key, statement.StatementPreimage, nil)
 		if err != nil {
 			return err
 		}
@@ -565,18 +748,18 @@ func (c *Client) FollowLog(logId [32]byte, statementHash []byte) error {
 
 // IsFollowingLog returns true when the passed LogID is merely being followed
 // by this client, and not being actively written to.
-func (c *Client) IsFollowingLog(logId [32]byte) bool {
-	isFollowing := false
+func (c *Client) IsForeignLog(logId [32]byte) bool {
+	isForeign := false
 	c.db.View(func(tx *buntdb.Tx) error {
-		// Store the hash of the log
+		// Fetch idx 999999999 - its existence will learn us that this is imported.
 		key := fmt.Sprintf("loghash-%x-999999999", logId[:])
 		_, err := tx.Get(key)
 		if err == nil {
-			isFollowing = true
+			isForeign = true
 		}
 		return nil
 	})
-	return isFollowing
+	return isForeign
 }
 
 func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {

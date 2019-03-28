@@ -2,9 +2,10 @@ package client
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"strconv"
+
+	"github.com/mit-dci/go-bverify/mpt"
 
 	"github.com/mit-dci/go-bverify/logging"
 
@@ -18,17 +19,10 @@ func (c *Client) updateProofs() error {
 	logging.Debugf("Updating proofs")
 
 	// First, create an array of all the logIDs we are keeping in this client
-	logIds := make([][32]byte, 0)
-	c.db.View(func(tx *buntdb.Tx) error {
-		tx.AscendRange("", "log-", "log.", func(key, value string) bool {
-			logId, _ := hex.DecodeString(key[4:])
-			logId32 := [32]byte{}
-			copy(logId32[:], logId)
-			logIds = append(logIds, logId32)
-			return true
-		})
-		return nil
-	})
+	logIds, err := c.GetAllLogIDs()
+	if err != nil {
+		return err
+	}
 
 	// Request the proofs from the server
 	proof, err := c.RequestProof(logIds)
@@ -64,21 +58,23 @@ func (c *Client) updateProofs() error {
 		// Find the witness value in our history of values
 		valueIdx := int64(-1)
 		c.db.View(func(tx *buntdb.Tx) error {
-			tx.DescendRange("", fmt.Sprintf("loghash-%x-999999999", l), fmt.Sprintf("loghash-%x-000000000", l), func(key, value string) bool {
+			tx.DescendRange("", fmt.Sprintf("loghash-%x-999999999", l), fmt.Sprintf("loghash-%x-00000000/", l), func(key, value string) bool {
 				if bytes.Equal([]byte(value), val) {
-					valueIdx, _ = strconv.ParseInt(key[41:], 0, 64)
+					logging.Debugf("Found matching value in key %s\n", key)
+					logging.Debugf("Found matching value in key %s\n", key[73:])
+					valueIdx, _ = strconv.ParseInt(key[73:], 10, 64)
+					logging.Debugf("Found matching value in idx %d\n", valueIdx)
 					return false
 				}
 				return true
 			})
 			return nil
 		})
-
 		if valueIdx == -1 {
 			// We don't know about the value the server committed. This is pretty catastrophic if we're the ones
 			// that are maintaining the log. Though not if we're just following it. If we are following the log,
 			// then this situation means our log's proof became invalid.
-			if c.IsFollowingLog(l) {
+			if c.IsForeignLog(l) {
 				// Ignore
 				continue
 			}
@@ -111,4 +107,26 @@ func (c *Client) updateProofs() error {
 		}
 		return nil
 	})
+}
+
+func (c *Client) GetProofForCommitment(commitment [32]byte, logIds [][]byte) (*mpt.PartialMPT, error) {
+	var fullTree *mpt.FullMPT
+	// Proof can be stored for more than one logId and we might want the proof for only one. Further slim
+	// down the PartialMPT by loading it as FullMPT and further decreasing it
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		proof, err := tx.Get(fmt.Sprintf("proof-%x", commitment))
+		if err != nil {
+			return err
+		}
+
+		fullTree, err = mpt.NewFullMPTFromBytes([]byte(proof))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mpt.NewPartialMPTIncludingKeys(fullTree, logIds)
 }

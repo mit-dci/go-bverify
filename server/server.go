@@ -108,7 +108,7 @@ func NewServer(addr string, rescanBlocks int) (*Server, error) {
 	srv.RescanBlocks = rescanBlocks
 	srv.AutoCommit = true
 	srv.KeepCommitmentTree = true
-	srv.CommitEveryNBlocks = 6 // every hour (well, on bitcoin at least)
+	srv.CommitEveryNBlocks = 1 // every hour (well, on bitcoin at least)
 	srv.addr = addr
 
 	if srv.addr == "" {
@@ -144,6 +144,15 @@ func (srv *Server) GetPubKeyForLogID(logID [32]byte) ([33]byte, error) {
 		return [33]byte{}, fmt.Errorf("LogID not found")
 	}
 	return pk.([33]byte), nil
+}
+
+func (srv *Server) GetNextLogIndex(logID [32]byte) uint64 {
+	idx, ok := srv.logIDIndex.Load(logID)
+	if !ok {
+		return uint64(0)
+	} else {
+		return (idx.(uint64)) + 1
+	}
 }
 
 func (srv *Server) RegisterLogStatement(logID [32]byte, index uint64, statement []byte) error {
@@ -489,6 +498,10 @@ func (srv *Server) Commit() error {
 		logging.Debugf("Committed to chain: %x", txID)
 
 		srv.commitState()
+
+		// change something in the tree to force a commitment next time around
+		nextIdx := srv.GetNextLogIndex([32]byte{})
+		srv.RegisterLogStatement([32]byte{}, nextIdx, commitment)
 	}
 	commitment = nil
 	return nil

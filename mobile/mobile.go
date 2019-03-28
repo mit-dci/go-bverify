@@ -19,7 +19,7 @@ func RunBVerifyClient(hostName string, hostPort int) error {
 		return err
 	}
 
-	go cli.Run()
+	go cli.Run(false)
 
 	return nil
 }

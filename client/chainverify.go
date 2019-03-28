@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/mit-dci/go-bverify/logging"
@@ -124,6 +125,52 @@ func (c *Client) verifyCommitment(comm *wire.Commitment) error {
 	logging.Debugf("Everything checks out, this commitment is valid!")
 
 	return nil
+}
+
+// ClearCommitments delets the client-side cache of the server commitments. This will
+// trigger a resynchronization of the commitments and proofs.
+func (c *Client) ClearCommitments() error {
+	keys := make([]string, 0)
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		return tx.AscendRange("", "commitment-", "commitment.", func(key, value string) bool {
+			keys = append(keys, key)
+			return true
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return c.db.Update(func(tx *buntdb.Tx) error {
+		for _, k := range keys {
+			_, err := tx.Delete(k)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+}
+
+func (c *Client) getAllCommitments() ([]*wire.Commitment, error) {
+	returnVal := make([]*wire.Commitment, 0)
+	err := c.db.View(func(tx *buntdb.Tx) error {
+		return tx.AscendRange("", "commitment-", "commitment.", func(key, value string) bool {
+			if key != "commitment-last" {
+				returnVal = append(returnVal, wire.CommitmentFromBytes([]byte(value)))
+			}
+			return true
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(returnVal, func(i, j int) bool {
+		return returnVal[i].TriggeredAtBlockHeight < returnVal[j].TriggeredAtBlockHeight
+	})
+
+	return returnVal, nil
 }
 
 // saveCommitment writes the details of a commitment to our client-side database
