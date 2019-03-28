@@ -31,7 +31,6 @@ import (
 
 type ServerState struct {
 	LastCommitmentTree          []byte
-	LastCommitment              []byte
 	LastConfirmedCommitmentTree []byte
 }
 
@@ -641,7 +640,9 @@ func (srv *Server) Commit() error {
 func (srv *Server) commitState() error {
 	commitState := ServerState{}
 	commitState.LastCommitmentTree = srv.LastCommitMpt.Bytes()
-
+	if srv.LastConfirmedCommitMpt != nil {
+		commitState.LastConfirmedCommitmentTree = srv.LastConfirmedCommitMpt.Bytes()
+	}
 	stateBytes, err := json.Marshal(commitState)
 	if err != nil {
 		return err
@@ -668,9 +669,11 @@ func (srv *Server) loadState() error {
 		return err
 	}
 
-	srv.LastConfirmedCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastConfirmedCommitmentTree)
-	if err != nil {
-		return err
+	if commitState.LastConfirmedCommitmentTree != nil {
+		srv.LastConfirmedCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastConfirmedCommitmentTree)
+		if err != nil {
+			return err
+		}
 	}
 
 	srv.fullmpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
