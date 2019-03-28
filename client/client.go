@@ -30,11 +30,6 @@ import (
 	"github.com/mit-dci/go-bverify/wire"
 )
 
-// maidenHash will store the (fixed) default initial hash every server should
-// write to the chain as their first commitment. That way clients can recognize
-// this as the start of the chain
-var maidenHash []byte
-
 type Client struct {
 	// The connection to the server
 	conn *wire.Connection
@@ -973,18 +968,4 @@ func (c *Client) GetCommitmentDetails(commitment [32]byte) (*wire.Commitment, er
 // the blockhash
 func (c *Client) GetBlockHeaderByHash(hash *chainhash.Hash) (*btcwire.BlockHeader, error) {
 	return c.spv.GetHeaderByBlockHash(hash)
-}
-
-func init() {
-	// The maidenHash is a fixed result of the following log statements being added to the
-	// server upon first startup:
-	//
-	// srv.RegisterLogID([32]byte{}, [33]byte{})
-	// logHash := fastsha256.Sum256([]byte("Maiden commitment for b_verify"))
-	// srv.RegisterLogStatement([32]byte{}, 0, logHash[:])
-	// srv.Commit()
-	//
-	// Every commitment chain of b_verify servers will start with this hash - which
-	// makes it very easy to recognize there were no prior commitments
-	maidenHash, _ = hex.DecodeString("523e59cfc5235b915dc89de188d87449453b083a8b7d97c1ee64d875da403361")
 }

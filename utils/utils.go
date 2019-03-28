@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"os"
@@ -23,6 +24,8 @@ import (
 )
 
 const APP_NAME = "B_Verify"
+
+var maidenHash []byte
 
 // CloneByteSlice clones a byte slice and returns the clone
 func CloneByteSlice(b []byte) []byte {
@@ -118,6 +121,10 @@ func DirectWSHScriptFromSH(sh [32]byte) []byte {
 	return b
 }
 
+func MaidenHash() []byte {
+	return maidenHash
+}
+
 func DirectWSHScriptFromAddress(adr string) ([]byte, error) {
 	var scriptHash [32]byte
 	decoded, err := bech32.SegWitAddressDecode(adr)
@@ -164,4 +171,18 @@ func GetEnvOrDefault(evar string, def string) string {
 		return def
 	}
 	return val
+}
+
+func init() {
+	// The maidenHash is a fixed result of the following log statements being added to the
+	// server upon first startup:
+	//
+	// srv.RegisterLogID([32]byte{}, [33]byte{})
+	// logHash := fastsha256.Sum256([]byte("Maiden commitment for b_verify"))
+	// srv.RegisterLogStatement([32]byte{}, 0, logHash[:])
+	// srv.Commit()
+	//
+	// Every commitment chain of b_verify servers will start with this hash - which
+	// makes it very easy to recognize there were no prior commitments
+	maidenHash, _ = hex.DecodeString("523e59cfc5235b915dc89de188d87449453b083a8b7d97c1ee64d875da403361")
 }

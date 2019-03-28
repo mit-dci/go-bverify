@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/mit-dci/go-bverify/utils"
+
 	"github.com/mit-dci/go-bverify/logging"
 
 	btcwire "github.com/mit-dci/go-bverify/bitcoin/wire"
@@ -115,7 +117,7 @@ func (c *Client) verifyCommitment(comm *wire.Commitment) error {
 	tx := btcwire.NewMsgTx(1)
 	tx.Deserialize(bytes.NewBuffer(comm.RawTx))
 
-	if bytes.Equal(comm.Commitment[:], maidenHash) {
+	if bytes.Equal(comm.Commitment[:], utils.MaidenHash()) {
 		logging.Debugf("Skipping the TXO chain check since this is the first commitment")
 	} else {
 		logging.Debugf("Previous outpoint expected: [%x/1] - First input: [%x/%d]", c.lastServerCommitment.TxHash[:], tx.TxIn[0].PreviousOutPoint.Hash[:], tx.TxIn[0].PreviousOutPoint.Index)

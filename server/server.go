@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -355,15 +354,44 @@ func (srv *Server) loadCommitments() {
 	logging.Debugf("Loaded %d previous commitments", len(srv.commitments))
 
 	// Sort in right order
-	sort.Slice(srv.commitments, func(i, j int) bool {
-		return srv.commitments[i].TriggeredAtBlockHeight < srv.commitments[j].TriggeredAtBlockHeight
-	})
+	commitments := make([]*wire.Commitment, 0)
+	for {
+		if len(commitments) == len(srv.commitments) {
+			break
+		}
+		lenBefore := len(commitments)
+		if len(commitments) == 0 {
+			// Find maiden commitment and add that
+			for _, c := range srv.commitments {
+				if bytes.Equal(c.Commitment[:], utils.MaidenHash()) {
+					commitments = append(commitments, c)
+					break
+				}
+			}
+		} else {
+			// Find commitment that spends last commitment's outpoint 1
+			for _, c := range srv.commitments {
+				tx := btcwire.NewMsgTx(1)
+				err := tx.Deserialize(bytes.NewBuffer(c.RawTx))
+				if err != nil {
+					err = fmt.Errorf("Commitment %x has unparseable rawTX: %s", c.Commitment, err.Error())
+					panic(err)
+				}
+				if tx.TxIn[0].PreviousOutPoint.Index == 1 && tx.TxIn[0].PreviousOutPoint.Hash.IsEqual(commitments[len(commitments)-1].TxHash) {
+					commitments = append(commitments, c)
+					break
+				}
+			}
+		}
 
-	for _, c := range srv.commitments {
-		if c.TriggeredAtBlockHeight > srv.LastCommitHeight {
-			srv.LastCommitHeight = c.TriggeredAtBlockHeight
+		if len(commitments) == lenBefore {
+			err = fmt.Errorf("Could not reconstruct commitment chain from disk")
+			panic(err)
 		}
 	}
+
+	srv.commitments = commitments
+	srv.LastCommitHeight = srv.commitments[len(srv.commitments)-1].TriggeredAtBlockHeight
 }
 
 func (srv *Server) loadLogs() {
