@@ -531,6 +531,7 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 
 			if bytes.Equal(srv.lastCommitment[:], c.Commitment[:]) {
 				srv.LastConfirmedCommitMpt, _ = mpt.NewFullMPTFromBytes(srv.LastCommitMpt.Bytes())
+				srv.commitState()
 			}
 		} else {
 			logging.Debugf("Commitment %x is not in block", c.Commitment)
@@ -625,7 +626,7 @@ func (srv *Server) Commit() error {
 		copy(comm32[:], commitment)
 		c := wire.NewCommitment(comm32, txID, rawTx, srv.wallet.Height())
 		srv.saveCommitment(c)
-		logging.Debugf("Committed to chain: %x", txID)
+		logging.Debugf("Committed to chain: %s", txID.String())
 
 		srv.commitState()
 
