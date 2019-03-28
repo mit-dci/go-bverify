@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -136,6 +138,16 @@ func (srv *Server) RegisterLogID(logID [32]byte, controllingKey [33]byte) error 
 		return fmt.Errorf("Duplicate log ID created: [%x]", logID)
 	}
 	srv.logIDToPubKey.Store(logID, controllingKey)
+	if srv.Full {
+		// Persist the log ID and its controlling key
+		err := srv.commitmentDb.Update(func(tx *buntdb.Tx) error {
+			_, _, err := tx.Set(fmt.Sprintf("key-%x", logID), string(controllingKey[:]), nil)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -163,7 +175,19 @@ func (srv *Server) RegisterLogStatement(logID [32]byte, index uint64, statement 
 	} else if ok && index != (idx.(uint64))+1 {
 		return fmt.Errorf("Unexpected log index %d - expected %d", index, (idx.(uint64))+1)
 	}
+
 	srv.logIDIndex.Store(logID, index)
+
+	if srv.Full {
+		// Persist the index
+		err := srv.commitmentDb.Update(func(tx *buntdb.Tx) error {
+			_, _, err := tx.Set(fmt.Sprintf("idx-%x", logID), fmt.Sprintf("%d", index), nil)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
 
 	srv.mptLock.Lock()
 	srv.fullmpt.Insert(logID[:], statement)
@@ -213,6 +237,7 @@ func (srv *Server) Run() error {
 		go srv.blockWatcher(newBlockChan)
 		srv.loadState()
 		srv.loadCommitments()
+		srv.loadLogs()
 	}
 
 	logging.Debugf("Server ready. Commitment: %x - Last committed at height: %d", srv.lastCommitment, srv.LastCommitHeight)
@@ -335,6 +360,36 @@ func (srv *Server) loadCommitments() {
 		if c.TriggeredAtBlockHeight > srv.LastCommitHeight {
 			srv.LastCommitHeight = c.TriggeredAtBlockHeight
 		}
+	}
+}
+
+func (srv *Server) loadLogs() {
+	err := srv.commitmentDb.View(func(tx *buntdb.Tx) error {
+		tx.AscendRange("", "key-", "key.", func(key, value string) bool {
+			logID, _ := hex.DecodeString(key[4:])
+			logID32 := [32]byte{}
+			copy(logID32[:], logID)
+			controllingKey := [33]byte{}
+			copy(controllingKey[:], []byte(value))
+
+			srv.logIDToPubKey.Store(logID32, controllingKey)
+			return true
+		})
+
+		tx.AscendRange("", "idx-", "idx.", func(key, value string) bool {
+			logID, _ := hex.DecodeString(key[4:])
+			logID32 := [32]byte{}
+			copy(logID32[:], logID)
+			idx, _ := strconv.ParseUint(value, 10, 64)
+
+			srv.logIDIndex.Store(logID32, idx)
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		logging.Errorf("[Server] Error loading logs: %s", err.Error())
+		return
 	}
 }
 
