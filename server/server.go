@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -237,6 +238,15 @@ func (srv *Server) Run() error {
 		srv.loadState()
 		srv.loadCommitments()
 		srv.loadLogs()
+
+		// After everything is loaded, we should touch our "special log" to trigger new
+		// commitments, even if clients don't change anything. We did that after the last
+		// commit before the server got shutdown, but that is only in memory.
+
+		trigger := make([]byte, 32)
+		rand.Read(trigger[:])
+
+		srv.RegisterLogStatement([32]byte{}, srv.GetNextLogIndex([32]byte{}), trigger)
 	}
 
 	logging.Debugf("Server ready. Commitment: %x - Last committed at height: %d", srv.lastCommitment, srv.LastCommitHeight)
@@ -324,12 +334,19 @@ func (srv *Server) blockWatcher(wc chan *btcwire.MsgBlock) {
 
 		blocksSince := srv.wallet.Height() - srv.LastCommitHeight
 		if blocksSince >= srv.CommitEveryNBlocks {
-			logging.Debugf("Got new block, committing to chain!")
-			if srv.isReady {
-				err := srv.Commit()
-				if err != nil {
-					logging.Errorf("Error while committing to chain: %s", err.Error())
+			logging.Debugf("Reached commit threshold. Committing to chain")
+			pending := srv.getPendingCommitments()
+			if len(pending) == 0 {
+				if srv.isReady {
+					err := srv.Commit()
+					if err != nil {
+						logging.Errorf("Error while committing to chain: %s", err.Error())
+					}
+				} else {
+					logging.Warnf("Server not ready, not committing")
 				}
+			} else {
+				logging.Debugf("We still have a pending commitment, waiting for it to be mined before committing again")
 			}
 		} else {
 			logging.Debugf("Got new block, %d since last commit (commit every %d) - waiting", blocksSince, srv.CommitEveryNBlocks)
@@ -463,8 +480,10 @@ func (srv *Server) getPendingCommitments() []*wire.Commitment {
 
 func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 	pending := srv.getPendingCommitments()
-	logging.Debugf("We have %d pending commitments", len(pending))
+	logging.Debugf("We have %d pending commitments:", len(pending))
+
 	for _, c := range pending {
+		logging.Debugf("Commitment %x is pending (tx hash: %s)", c.Commitment, c.TxHash.String())
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
 			hash := tx.TxHash()
@@ -475,6 +494,8 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 		}
 
 		if commitmentInBlock {
+			logging.Debugf("Commitment %x is in block", c.Commitment)
+
 			merkleRoot := block.Header.MerkleRoot
 			txs := make([]*btcutil.Tx, len(block.Transactions))
 			for i, tx := range block.Transactions {
@@ -502,7 +523,14 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			blockHash := block.BlockHash()
 			c.IncludedInBlock = &blockHash
 			srv.saveCommitment(c)
+		} else {
+			logging.Debugf("Commitment %x is not in block", c.Commitment)
 		}
+	}
+
+	pending := srv.getPendingCommitments()
+	if len(pending) > 0 {
+		logging.Debugf("We still have %d pending commitments:", len(pending))
 	}
 
 	return nil
