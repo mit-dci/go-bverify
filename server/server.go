@@ -513,7 +513,6 @@ func (srv *Server) Commitment() []byte {
 
 func (srv *Server) Commit() error {
 	srv.mptLock.Lock()
-	defer srv.mptLock.Unlock()
 	commitment := srv.fullmpt.Commitment()
 	if bytes.Equal(srv.lastCommitment[:], commitment[:]) {
 		commitment = nil
@@ -548,6 +547,8 @@ func (srv *Server) Commit() error {
 	srv.processorsLock.Unlock()
 
 	srv.fullmpt.Reset()
+
+	srv.mptLock.Unlock()
 
 	if srv.Full {
 		txID, rawTx, err := srv.wallet.Commit(commitment[:])
