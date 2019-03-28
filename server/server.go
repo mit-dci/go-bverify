@@ -30,8 +30,9 @@ import (
 )
 
 type ServerState struct {
-	LastCommitmentTree []byte
-	LastCommitment     []byte
+	LastCommitmentTree          []byte
+	LastCommitment              []byte
+	LastConfirmedCommitmentTree []byte
 }
 
 type Server struct {
@@ -46,6 +47,10 @@ type Server struct {
 
 	// The last state of the MPT when we last committed
 	LastCommitMpt *mpt.FullMPT
+
+	// The state of the MPT upon confirmation from the chain (mined commitment
+	// transaction)
+	LastConfirmedCommitMpt *mpt.FullMPT
 
 	// Lock guarding the MPT
 	mptLock sync.Mutex
@@ -523,6 +528,10 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			blockHash := block.BlockHash()
 			c.IncludedInBlock = &blockHash
 			srv.saveCommitment(c)
+
+			if bytes.Equal(srv.lastCommitment[:], c.Commitment[:]) {
+				srv.LastConfirmedCommitMpt, _ = mpt.NewFullMPTFromBytes(srv.LastCommitMpt.Bytes())
+			}
 		} else {
 			logging.Debugf("Commitment %x is not in block", c.Commitment)
 		}
@@ -658,6 +667,11 @@ func (srv *Server) loadState() error {
 		return err
 	}
 
+	srv.LastConfirmedCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastConfirmedCommitmentTree)
+	if err != nil {
+		return err
+	}
+
 	srv.fullmpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
 	if err != nil {
 		return err
@@ -669,7 +683,7 @@ func (srv *Server) loadState() error {
 }
 
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
-	return mpt.NewPartialMPTIncludingKeys(srv.LastCommitMpt, keys)
+	return mpt.NewPartialMPTIncludingKeys(srv.LastConfirmedCommitMpt, keys)
 }
 
 func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {
