@@ -528,7 +528,7 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 		}
 	}
 
-	pending := srv.getPendingCommitments()
+	pending = srv.getPendingCommitments()
 	if len(pending) > 0 {
 		logging.Debugf("We still have %d pending commitments:", len(pending))
 	}
