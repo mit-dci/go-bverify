@@ -30,10 +30,28 @@ func (m MerkleProof) Bytes() []byte {
 // element you want to prove. The merkle tree is expected to be in the form that
 // is returned by BuildMerkleTreeStore
 func NewMerkleProof(merkleTree []*chainhash.Hash, idx uint64) MerkleProof {
+	logging.Debugf("Creating merkle proof for index [%d] - merkle tree:", idx)
+	for i, h := range merkleTree {
+		if h == nil {
+			logging.Debugf("%03d : nil", i)
+		} else {
+			logging.Debugf("%03d : %x", i, h[:])
+		}
+	}
+
 	treeHeight := calcTreeHeight(uint64((len(merkleTree) + 1) / 2))
+
+	logging.Debugf("Treeheight: %d", treeHeight)
+
 	proof := MerkleProof{Position: idx, Hashes: make([]*chainhash.Hash, treeHeight)}
 	for i := uint(0); i < treeHeight; i++ {
+		if merkleTree[idx^1] == nil {
+			logging.Debugf("Adding hash %03d: nil [!!!]", idx^1)
+		} else {
+			logging.Debugf("Adding hash %03d: %x", idx^1, merkleTree[idx^1][:])
+		}
 		proof.Hashes[i] = merkleTree[idx^1]
+
 		idx = (idx >> 1) | (1 << treeHeight)
 	}
 	return proof
