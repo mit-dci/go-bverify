@@ -46,11 +46,13 @@ func NewMerkleProof(merkleTree []*chainhash.Hash, idx uint64) MerkleProof {
 	proof := MerkleProof{Position: idx, Hashes: make([]*chainhash.Hash, treeHeight)}
 	for i := uint(0); i < treeHeight; i++ {
 		if merkleTree[idx^1] == nil {
-			logging.Debugf("Adding hash %03d: nil [!!!]", idx^1)
+			// From the documentation of BuildMerkleTreeStore: "parent nodes
+			// "with only a single left node are calculated by concatenating
+			// the left node with itself before hashing."
+			proof.Hashes[i] = merkleTree[idx] // add "ourselves"
 		} else {
-			logging.Debugf("Adding hash %03d: %x", idx^1, merkleTree[idx^1][:])
+			proof.Hashes[i] = merkleTree[idx^1]
 		}
-		proof.Hashes[i] = merkleTree[idx^1]
 
 		idx = (idx >> 1) | (1 << treeHeight)
 	}
