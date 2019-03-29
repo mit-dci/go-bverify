@@ -70,7 +70,10 @@ func (proof MerkleProof) Check(hash, expectedRoot *chainhash.Hash) bool {
 
 	logging.Debugf("Proof position is %d", hashIdx)
 	for _, h := range proof.Hashes {
+		logging.Debugf("Hash is nil: [%t]", h == nil)
 		logging.Debugf("Adding hash [%x]", h[:])
+		logging.Debugf("Adding to hash [%x]", hash[:])
+
 		var newHash chainhash.Hash
 		if hashIdx&1 == 1 {
 			newHash = chainhash.DoubleHashH(append(h[:], hash[:]...))
