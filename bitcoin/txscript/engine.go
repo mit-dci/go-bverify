@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
 )
 
 // ScriptFlags is a bitmask defining additional operations or tests that will be
@@ -420,12 +420,12 @@ func (vm *Engine) CheckErrorCondition(finalScript bool) error {
 	}
 	if !v {
 		// Log interesting data.
-		log.Tracef("%v", newLogClosure(func() string {
+		/*log.Tracef("%v", newLogClosure(func() string {
 			dis0, _ := vm.DisasmScript(0)
 			dis1, _ := vm.DisasmScript(1)
 			return fmt.Sprintf("scripts failed: script0: %s\n"+
 				"script1: %s", dis0, dis1)
-		}))
+		}))*/
 		return scriptError(ErrEvalFalse,
 			"false stack entry at end of script execution")
 	}
@@ -529,19 +529,19 @@ func (vm *Engine) Step() (done bool, err error) {
 func (vm *Engine) Execute() (err error) {
 	done := false
 	for !done {
-		log.Tracef("%v", newLogClosure(func() string {
+		/*log.Tracef("%v", newLogClosure(func() string {
 			dis, err := vm.DisasmPC()
 			if err != nil {
 				return fmt.Sprintf("stepping (%v)", err)
 			}
 			return fmt.Sprintf("stepping %v", dis)
-		}))
+		}))*/
 
 		done, err = vm.Step()
 		if err != nil {
 			return err
 		}
-		log.Tracef("%v", newLogClosure(func() string {
+		/*log.Tracef("%v", newLogClosure(func() string {
 			var dstr, astr string
 
 			// if we're tracing, dump the stacks.
@@ -553,7 +553,7 @@ func (vm *Engine) Execute() (err error) {
 			}
 
 			return dstr + astr
-		}))
+		}))*/
 	}
 
 	return vm.CheckErrorCondition(true)

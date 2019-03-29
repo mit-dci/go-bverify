@@ -14,9 +14,9 @@ import (
 
 	"golang.org/x/crypto/ripemd160"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 	"github.com/mit-dci/go-bverify/bitcoin/wire"
+	"github.com/mit-dci/go-bverify/crypto/btcec"
 )
 
 // An opcode defines the information related to a txscript opcode.  opfunc, if

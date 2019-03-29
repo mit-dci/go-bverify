@@ -7,7 +7,7 @@ package blockchain
 import (
 	"math/big"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/mit-dci/go-bverify/bitcoin/chainhash"
 )
 
 var (
