@@ -256,12 +256,7 @@ func (w *Wallet) Balance() uint64 {
 
 func (w *Wallet) processBlock(block *wire.MsgBlock) error {
 	for _, nbl := range w.newBlockListeners {
-		select {
-		case nbl <- block:
-
-		default:
-
-		}
+		nbl <- block
 	}
 
 	balBefore := w.Balance()
