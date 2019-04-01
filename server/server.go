@@ -493,17 +493,19 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 	for _, c := range srv.commitments { // Scan all commitments. Commitments can reorg.
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
-			if tx.TxHash().IsEqual(c.TxHash) {
+			hash := tx.TxHash()
+			if hash.IsEqual(c.TxHash) {
 				commitmentInBlock = true
 				break
 			}
 		}
 
 		if commitmentInBlock {
-			if c.IncludedInBlock != nil && !c.IncludedInBlock.IsEqual(block.BlockHash()) {
-				logging.Debugf("Commitment %x was in block %s, now %s", c.Commitment, c.IncludedInBlock.String(), block.BlockHash().String())
+			blockHash := block.BlockHash()
+			if c.IncludedInBlock != nil && !c.IncludedInBlock.IsEqual(&blockHash) {
+				logging.Debugf("Commitment %x was in block %s, now %s", c.Commitment, c.IncludedInBlock.String(), blockHash.String())
 			} else {
-				logging.Debugf("Commitment %x is in block %s", c.Commitment, block.BlockHash().String())
+				logging.Debugf("Commitment %x is in block %s", c.Commitment, blockHash.String())
 			}
 			merkleRoot := block.Header.MerkleRoot
 			txs := make([]*btcutil.Tx, len(block.Transactions))
@@ -529,7 +531,6 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			}
 
 			c.MerkleProof = proof
-			blockHash := block.BlockHash()
 			c.IncludedInBlock = &blockHash
 
 			if bytes.Equal(srv.lastCommitment[:], c.Commitment[:]) {
