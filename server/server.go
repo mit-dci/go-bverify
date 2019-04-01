@@ -486,7 +486,7 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 	pending := srv.getPendingCommitments()
 	logging.Debugf("We have %d pending commitments:", len(pending))
 
-	for _, c := range pending {
+	for _, c := range srv.commitments { // Scan all commitments. Commitments can reorg.
 		logging.Debugf("Commitment %x is pending (tx hash: %s)", c.Commitment, c.TxHash.String())
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
