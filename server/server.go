@@ -485,9 +485,10 @@ func (srv *Server) getPendingCommitments() []*wire.Commitment {
 func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 	pending := srv.getPendingCommitments()
 	logging.Debugf("We have %d pending commitments:", len(pending))
-
-	for _, c := range srv.commitments { // Scan all commitments. Commitments can reorg.
+	for _, c := range pending {
 		logging.Debugf("Commitment %x is pending (tx hash: %s)", c.Commitment, c.TxHash.String())
+	}
+	for _, c := range srv.commitments { // Scan all commitments. Commitments can reorg.
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
 			hash := tx.TxHash()
@@ -498,8 +499,11 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 		}
 
 		if commitmentInBlock {
-			logging.Debugf("Commitment %x is in block", c.Commitment)
-
+			if c.IncludedInBlock != nil {
+				logging.Debugf("Commitment %x was in block %s, now %s", c.Commitment, c.IncludedInBlock.String(), block.BlockHash().String())
+			} else {
+				logging.Debugf("Commitment %x is in block %s", c.Commitment, block.BlockHash().String())
+			}
 			merkleRoot := block.Header.MerkleRoot
 			txs := make([]*btcutil.Tx, len(block.Transactions))
 			for i, tx := range block.Transactions {
@@ -533,8 +537,6 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			}
 
 			srv.saveCommitment(c)
-		} else {
-			logging.Debugf("Commitment %x is not in block", c.Commitment)
 		}
 	}
 
