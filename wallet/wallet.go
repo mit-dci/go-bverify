@@ -255,22 +255,23 @@ func (w *Wallet) Balance() uint64 {
 }
 
 func (w *Wallet) processBlock(block *wire.MsgBlock) error {
-	logging.Debugf("Sending block to %d listeners", len(w.newBlockListeners))
 	for i, nbl := range w.newBlockListeners {
 		select {
 		case nbl <- block:
-			logging.Debugf("Block accepted by listener channel %d", i)
+
 		default:
-			logging.Debugf("Block dropped for listener channel %d", i)
+
 		}
 	}
 
+	balBefore := w.Balance()
 	for _, tx := range block.Transactions {
 		w.processTransaction(tx)
 	}
-
-	logging.Debugf("New block processed. Our balance is now %d", w.Balance())
-
+	balAfter := w.Balance()
+	if balAfter != balBefore {
+		logging.Debugf("Our balance is now %d", w.Balance())
+	}
 	return nil
 }
 
