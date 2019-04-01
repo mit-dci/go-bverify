@@ -483,23 +483,24 @@ func (srv *Server) getPendingCommitments() []*wire.Commitment {
 }
 
 func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
+	logging.Debugf("Processing block %s for commitments", block.BlockHash().String())
 	pending := srv.getPendingCommitments()
 	logging.Debugf("We have %d pending commitments:", len(pending))
 	for _, c := range pending {
 		logging.Debugf("Commitment %x is pending (tx hash: %s)", c.Commitment, c.TxHash.String())
 	}
+
 	for _, c := range srv.commitments { // Scan all commitments. Commitments can reorg.
 		commitmentInBlock := false
 		for _, tx := range block.Transactions {
-			hash := tx.TxHash()
-			if bytes.Equal(hash[:], c.TxHash[:]) {
+			if tx.TxHash().IsEqual(c.TxHash) {
 				commitmentInBlock = true
 				break
 			}
 		}
 
 		if commitmentInBlock {
-			if c.IncludedInBlock != nil {
+			if c.IncludedInBlock != nil && !c.IncludedInBlock.IsEqual(block.BlockHash()) {
 				logging.Debugf("Commitment %x was in block %s, now %s", c.Commitment, c.IncludedInBlock.String(), block.BlockHash().String())
 			} else {
 				logging.Debugf("Commitment %x is in block %s", c.Commitment, block.BlockHash().String())
