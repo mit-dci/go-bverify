@@ -225,9 +225,21 @@ func (c *Client) verifyLoop() {
 			logging.Debugf("Got %d commitments", len(hist))
 
 			// For each commitment, verify if it's correct and then save it
+			retry := false
 			for _, comm := range hist {
 				err = c.verifyCommitment(comm)
 				if err != nil {
+					// If the block is not found, it could mean the commitment
+					// transaction reorged. We'll get the updated blockhash
+					// when we ask the server again - once the server has
+					// processed the reorg.
+					if err.Error() == "Block not found" {
+
+						logging.Warnf("The server says commitment %x is in block %s, but we don't have that. Retry (could be reorg-related)", comm.Commitment[:], comm.IncludedInBlock.String())
+						time.Sleep(time.Second * 20)
+						retry = true
+						break
+					}
 					panic(err)
 				}
 
@@ -235,6 +247,10 @@ func (c *Client) verifyLoop() {
 				if err != nil {
 					panic(err)
 				}
+			}
+
+			if retry {
+				continue
 			}
 
 			// If we got new commitments, we should also update proofs

@@ -54,10 +54,21 @@ func (c *Client) updateProofs() error {
 	logIdxes := map[[32]byte]uint64{}
 
 	for _, l := range logIds {
+		hasCommitment := c.LogHasCommitment(l)
 		// Get the LogID from the proof
 		val, err := proof.Get(l[:])
 		if err != nil {
+			if !hasCommitment {
+				logging.Debugf("Key is absent in proof [%x], but no commitments known yet so it's probably pending its first commitment", l)
+				continue
+			}
 			return fmt.Errorf("Error getting Log ID %x from the proof: %s", l, err)
+		}
+		if val == nil {
+			if !hasCommitment {
+				logging.Debugf("Key is absent in proof [%x], but no commitments known yet so it's probably pending its first commitment", l)
+				continue
+			}
 		}
 
 		// Find the witness value in our history of values
@@ -65,10 +76,7 @@ func (c *Client) updateProofs() error {
 		c.db.View(func(tx *buntdb.Tx) error {
 			tx.DescendRange("", fmt.Sprintf("loghash-%x-999999999", l), fmt.Sprintf("loghash-%x-00000000/", l), func(key, value string) bool {
 				if bytes.Equal([]byte(value), val) {
-					logging.Debugf("Found matching value in key %s\n", key)
-					logging.Debugf("Found matching value in key %s\n", key[73:])
 					valueIdx, _ = strconv.ParseInt(key[73:], 10, 64)
-					logging.Debugf("Found matching value in idx %d\n", valueIdx)
 					return false
 				}
 				return true
@@ -112,6 +120,18 @@ func (c *Client) updateProofs() error {
 		}
 		return nil
 	})
+}
+
+func (c *Client) LogHasCommitment(logId [32]byte) bool {
+	result := false
+	c.db.View(func(tx *buntdb.Tx) error {
+		tx.AscendRange("", fmt.Sprintf("logcommitment-%x-", logId), fmt.Sprintf("logcommitment-%x.", logId), func(key, value string) bool {
+			result = true
+			return false
+		})
+		return nil
+	})
+	return result
 }
 
 func (c *Client) GetProofForCommitment(commitment [32]byte, logIds [][]byte) (*mpt.PartialMPT, error) {

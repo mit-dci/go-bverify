@@ -75,10 +75,10 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		// provides us with a new block we'll ask again.
 		if reorgHeight == -1 {
 			logging.Errorf("Header error: %s\n", err.Error())
-			return false, nil
+			return true, nil
 		}
 		// some other error
-		return false, err
+		return true, err
 	}
 
 	// truncate header file if reorg happens
