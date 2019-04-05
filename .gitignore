@@ -5,3 +5,4 @@ cmd/bench/*.pprof
 cmd/bench/*.tex
 coverage.out
 mobile/Mobile.framework
+smart-contracts/node_modules
