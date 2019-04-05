@@ -12,7 +12,9 @@ contract BVerifyPenalty {
         
     }
 
-    function challenge(bytes payload) external {
+    function challenge(bytes calldata payload) external {
+        // TODO: Verify it... 
+
 
     }
 }
