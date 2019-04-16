@@ -412,6 +412,10 @@ func (srv *Server) loadCommitments() {
 	}
 
 	srv.commitments = commitments
+	if len(srv.commitments) < 1 {
+		err = fmt.Errorf("No commitments from disk")
+		panic(err)
+	}
 	srv.LastCommitHeight = srv.commitments[len(srv.commitments)-1].TriggeredAtBlockHeight
 }
 
