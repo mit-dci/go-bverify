@@ -412,7 +412,9 @@ func (srv *Server) loadCommitments() {
 	}
 
 	srv.commitments = commitments
-	srv.LastCommitHeight = srv.commitments[len(srv.commitments)-1].TriggeredAtBlockHeight
+        if len(srv.commitments) > 0 {
+		srv.LastCommitHeight = srv.commitments[len(srv.commitments)-1].TriggeredAtBlockHeight
+	}
 }
 
 func (srv *Server) loadLogs() {
