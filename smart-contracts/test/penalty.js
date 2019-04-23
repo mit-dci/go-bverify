@@ -32,31 +32,69 @@ const sleep = function(ms) {
 
         it("should accept a valid challenge", async function() {
             await params.penaltyContract.challengeLackOfProof.sendTransaction(
-                "0x5a1612f1f1d52e7c49d654ee96162f9a1eb400d9bd9af7f9052654b8443c20685147f84443597b3ce73412d7f90c804991e6dc5b88d4b3c0bb83ea32b0c93aa0478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b012094a61d77bd5ef28d3e126bf5a2d27f1bc8e8972dfb73b73dd2ef55c11418d726",
-                "0x04675d86f87459456d00ec06b66ad315f67ada3ed209c2b842c38d85790380b60486baf69d7d845e44b058bb405eac18bce389b1d6e1601c9c47f4e527c5a5dde6",
+                "0x22d1019dac766d785de93e537f312370f2a96279eeb6f3597e3f51c9cedd4942467da5e30fdbbe668ef6007f2ec68cfe4ed3b4d2c8566e4cd1963db65098ab15032e29081106fa7838991c61b33b282213c0a60215ba8c3f84572b260f15766c012094a61d77bd5ef28d3e126bf5a2d27f1bc8e8972dfb73b73dd2ef55c11418d726",
+                "0x04696380f1941bef7db2deac499384ff9ae1da8e172ad2c4e65cd213372bdbb4ff4bedb0f60545ccd88a787a93c4015b52b21e143660c6d76cd7fe70bd70dc167e",
                 28,
-                "0x5a1612f1f1d52e7c49d654ee96162f9a1eb400d9bd9af7f9052654b8443c2068",
-                "0x5147f84443597b3ce73412d7f90c804991e6dc5b88d4b3c0bb83ea32b0c93aa0",
+                "0x22d1019dac766d785de93e537f312370f2a96279eeb6f3597e3f51c9cedd4942",
+                "0x467da5e30fdbbe668ef6007f2ec68cfe4ed3b4d2c8566e4cd1963db65098ab15",
+                
+                
+            { from: params.accounts[0], gasLimit: 10000000 });
+        });
+
+        it("should accept a valid challenge with a wrong logID", async function() {
+            await params.penaltyContract.challengeLackOfProof.sendTransaction(
+                "0xae730553e3c95064147b4b2db38d270d58dc1d2fa0637afe1cec6ea7bd4eae564704ae093c94be7083c2a72e0f5fddb86a47cc00ff4a77a84561e557e1836ef3032e29081106fa7838991c61b33b282213c0a60215ba8c3f84572b260f15766c0120fe8e35559687763220f9fd32fa7fbd642a0e62eaf282938f7f37d33d94a1c5c5",
+                "0x0474ff618feb17f3b7ddcb9d78aabcaad8182c6b5f7bb85e65b5215d09156e953c292a9c33b57e80701ae1ed0e2d4fd5e12ba23dca969d48c0a4ff947c3c471cc6",
+                28,
+                "0xae730553e3c95064147b4b2db38d270d58dc1d2fa0637afe1cec6ea7bd4eae56",
+                "0x4704ae093c94be7083c2a72e0f5fddb86a47cc00ff4a77a84561e557e1836ef3",
+
+                
             { from: params.accounts[0], gasLimit: 10000000 });
         });
 
         it("should disallow withdrawing collateral within challenge period", async function() {
             await exceptions.catchRevert(params.penaltyContract.withdrawCollateral.sendTransaction(
-                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
+                "0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a",
             { from: params.accounts[0], gasLimit: 10000000 }));
         });
 
-        it("should accept a valid response", async function() {
-            await params.penaltyContract.respondLackOfProofWithProof.sendTransaction(
-                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
+        it("should return false for challengeResponded before response", async function() {
+            var result = await params.penaltyContract.challengeResponded.call("0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a");
+            assert.isFalse(result);
+        });
+
+        it("should not accept a invalid wrong key response", async function() {
+            await exceptions.catchRevert(params.penaltyContract.respondLackOfProofWithWrongKey.sendTransaction(
+                "0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a",
+                "0x02696380f1941bef7db2deac499384ff9ae1da8e172ad2c4e65cd213372bdbb4ff20986ee148d0906f9335f2fe790154e7b260fdaed34fe1e3916f6d26f93a95a0f1",
+            { from: params.accounts[1], gasLimit: 10000000 }));
+        });
+
+        it("should accept a valid wrong key response", async function() {
+            await params.penaltyContract.respondLackOfProofWithWrongKey.sendTransaction(
+                "0xfc60cc22c129526bff55c21a10bd7f16972c66a38593595536880d534f04c709",
+                "0x02696380f1941bef7db2deac499384ff9ae1da8e172ad2c4e65cd213372bdbb4ff20986ee148d0906f9335f2fe790154e7b260fdaed34fe1e3916f6d26f93a95a0f1",
+                { from: params.accounts[1], gasLimit: 10000000 });
+        });
+
+        it("should accept a valid proof response", async function() {
+           params.penaltyContract.respondLackOfProofWithProof.sendTransaction(
+                "0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a",
                 "0x",
                 "0x",
             { from: params.accounts[1], gasLimit: 10000000 });
         });
 
+        it("should return true for challengeResponded after response", async function() {
+            var result = await params.penaltyContract.challengeResponded.call("0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a");
+            assert.isTrue(result);
+        });
+
         it("should disallow withdrawing collateral when marked resolved", async function() {
             await exceptions.catchRevert(params.penaltyContract.withdrawCollateral.sendTransaction(
-                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
+                "0xe1c328291ab0f126d9fd64866fedaadb8b2c06c375d549caee7fd59db42a910a",
             { from: params.accounts[0], gasLimit: 10000000 }));
         });
 

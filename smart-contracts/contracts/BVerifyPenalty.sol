@@ -74,6 +74,7 @@ contract BVerifyPenalty {
 
         // Extract the Log ID
         bytes memory logID = _signedLogStatement.slice(64,32);
+        emit DebugBytes(abi.encodePacked(logID));
 
         // Calculate the witnessValue
         bytes memory witnessValue = abi.encodePacked(sha256(_signedLogStatement));
@@ -87,6 +88,8 @@ contract BVerifyPenalty {
         lackingProofs[proofHash].logID = logID;
         lackingProofs[proofHash].pubKey = _pubKey;
 
+        emit DebugBytes(abi.encodePacked(proofHash));
+
         // Emit the challenge
         emit ChallengeReceived(_signedLogStatement);
     }
@@ -97,6 +100,10 @@ contract BVerifyPenalty {
             mstore(0, hash)
             addr := mload(0)
         }    
+    }
+
+    function challengeResponded(bytes32 proofHash) external view returns (bool) {
+        return (lackingProofs[proofHash].respondedAt != 0);
     }
 
     function respondLackOfProofWithProof(bytes32 proofHash, bytes calldata merkleProof, bytes calldata commitmentTransaction) external {
@@ -118,15 +125,18 @@ contract BVerifyPenalty {
         require(correctLogID.equal(lackingProofs[proofHash].logID));
 
         // Check if the given createLogStatement indeed contains a different controlling key
-        bytes memory controllingKey = createLogStatement.slice(0,33);
-        require(controllingKey.equal(lackingProofs[proofHash].pubKey));
-        
+        // Since the createLogStatement has a compressed key, we can only compare the X
+        // coordinate
+        bytes memory controllingKey = createLogStatement.slice(1,32);
+        bytes memory lackingProofKey = lackingProofs[proofHash].pubKey.slice(1,32);
+        require(!controllingKey.equal(lackingProofKey));
+
         // Mark resolved
         lackingProofs[proofHash].respondedAt = block.timestamp;
 
         emit ChallengeRespondedWithWrongKey(proofHash, createLogStatement);
     }
-
+    
     function withdrawCollateral(bytes32 proofHash) external {
         //Challenge still has to be unresolved for 24 hours
         require(lackingProofs[proofHash].challengedAt < block.timestamp-86400); 
