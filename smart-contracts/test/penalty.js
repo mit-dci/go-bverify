@@ -32,23 +32,23 @@ const sleep = function(ms) {
 
         it("should accept a valid challenge", async function() {
             await params.penaltyContract.challengeLackOfProof.sendTransaction(
-                "0x34272d15b3fbac790ace6efafbbf98ccd0f857ea5ad1723a6f4689c3280c5d010b3f84c102155dda2984b36335d139f11937ce1da420853e516b6ce8aa39560d56c3f434bad6228acbc37457b74417533874a6c063018a349e142b5e8a340a0b012094a61d77bd5ef28d3e126bf5a2d27f1bc8e8972dfb73b73dd2ef55c11418d726",
-                "0x04426e6a2b7e6965d22d404bdcfb318717a395626a8062ec8660df000abe4b04a70528349f0f5a1a76b83c1becba8d5bd942764ee9d79a2dd98803730e9a2e4724",
-                0,
-                "0x34272d15b3fbac790ace6efafbbf98ccd0f857ea5ad1723a6f4689c3280c5d01",
-                "0x0b3f84c102155dda2984b36335d139f11937ce1da420853e516b6ce8aa39560d",
+                "0x5a1612f1f1d52e7c49d654ee96162f9a1eb400d9bd9af7f9052654b8443c20685147f84443597b3ce73412d7f90c804991e6dc5b88d4b3c0bb83ea32b0c93aa0478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b012094a61d77bd5ef28d3e126bf5a2d27f1bc8e8972dfb73b73dd2ef55c11418d726",
+                "0x04675d86f87459456d00ec06b66ad315f67ada3ed209c2b842c38d85790380b60486baf69d7d845e44b058bb405eac18bce389b1d6e1601c9c47f4e527c5a5dde6",
+                28,
+                "0x5a1612f1f1d52e7c49d654ee96162f9a1eb400d9bd9af7f9052654b8443c2068",
+                "0x5147f84443597b3ce73412d7f90c804991e6dc5b88d4b3c0bb83ea32b0c93aa0",
             { from: params.accounts[0], gasLimit: 10000000 });
         });
 
         it("should disallow withdrawing collateral within challenge period", async function() {
             await exceptions.catchRevert(params.penaltyContract.withdrawCollateral.sendTransaction(
-                "0x96eb5a4f646dcd53a181ae8be68c2fb53d9dfb84c8528884f76483e86894e2a1",
+                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
             { from: params.accounts[0], gasLimit: 10000000 }));
         });
 
         it("should accept a valid response", async function() {
-            await params.penaltyContract.respondLackOfProof.sendTransaction(
-                "0x96eb5a4f646dcd53a181ae8be68c2fb53d9dfb84c8528884f76483e86894e2a1",
+            await params.penaltyContract.respondLackOfProofWithProof.sendTransaction(
+                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
                 "0x",
                 "0x",
             { from: params.accounts[1], gasLimit: 10000000 });
@@ -56,7 +56,7 @@ const sleep = function(ms) {
 
         it("should disallow withdrawing collateral when marked resolved", async function() {
             await exceptions.catchRevert(params.penaltyContract.withdrawCollateral.sendTransaction(
-                "0x96eb5a4f646dcd53a181ae8be68c2fb53d9dfb84c8528884f76483e86894e2a1",
+                "0x478b7bda4a06b7b8e2a4fa7566e407e5f0a79abf2bc0f2ad05174bd8484e6a2b",
             { from: params.accounts[0], gasLimit: 10000000 }));
         });
 
