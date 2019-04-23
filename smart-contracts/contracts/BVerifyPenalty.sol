@@ -106,6 +106,10 @@ contract BVerifyPenalty {
         return (lackingProofs[proofHash].respondedAt != 0);
     }
 
+    function challengeExpired(bytes32 proofHash) external view returns (bool) {
+        return (lackingProofs[proofHash].respondedAt == 0 && lackingProofs[proofHash].challengedAt < block.timestamp-2);
+    }
+
     function respondLackOfProofWithProof(bytes32 proofHash, bytes calldata merkleProof, bytes calldata commitmentTransaction) external {
         // Check given data
 
@@ -138,14 +142,23 @@ contract BVerifyPenalty {
     }
     
     function withdrawCollateral(bytes32 proofHash) external {
-        //Challenge still has to be unresolved for 24 hours
-        require(lackingProofs[proofHash].challengedAt < block.timestamp-86400); 
+        
+        emit DebugBytes(abi.encodePacked(proofHash));
+
+        // Challenge should exist
+        require(lackingProofs[proofHash].challengedAt > 0); 
+
+        //Challenge still has to be unresolved for 2 seconds (in test - change to a more sensible value when deploying (like 24 hours))
+        require(lackingProofs[proofHash].challengedAt < block.timestamp-2); 
 
         // Should be left unresolved
         require(lackingProofs[proofHash].respondedAt == 0);
 
-        // Withdrawer has to be the original challenger
+        // Withdrawer has to be the original challenger 
         require(lackingProofs[proofHash].challenger == msg.sender); 
+
+        emit DebugAddress(lackingProofs[proofHash].challenger);
+        emit DebugAddress(msg.sender);
 
         // Shouldn't already be claimed
         require(lackingProofs[proofHash].claimedAmount == 0);
