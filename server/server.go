@@ -412,7 +412,7 @@ func (srv *Server) loadCommitments() {
 	}
 
 	srv.commitments = commitments
-        if len(srv.commitments) > 0 {
+	if len(srv.commitments) > 0 {
 		srv.LastCommitHeight = srv.commitments[len(srv.commitments)-1].TriggeredAtBlockHeight
 	}
 }
@@ -635,6 +635,8 @@ func (srv *Server) Commit() error {
 		// change something in the tree to force a commitment next time around
 		nextIdx := srv.GetNextLogIndex([32]byte{})
 		srv.RegisterLogStatement([32]byte{}, nextIdx, commitment)
+	} else {
+		srv.LastConfirmedCommitMpt = srv.LastCommitMpt
 	}
 	commitment = nil
 	return nil
