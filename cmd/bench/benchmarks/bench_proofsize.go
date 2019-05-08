@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,8 @@ const (
 // runProofSizeBench will add 10k logs each run, and
 // report the average proof size for 1, 10, 100, 1000 logs
 func RunProofSizeBench() {
+	var receivedProofs, receivedProofSizes []int64
+	var maxLogId int
 	// These are the different # logs we sample proof sizes for.
 	// We output a graph per number of logs
 	proofLogs := [4]int{1, 10, 100, 1000}
@@ -47,22 +50,20 @@ func RunProofSizeBench() {
 	// We need total / increments number of runs
 	runCount := PROOFSIZE_TOTALLOGS / PROOFSIZE_INCREMENTS
 
-	for runIdx := 0; runIdx < runCount; runIdx++ {
-		fmt.Printf("\rProof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
+	var logCreateWaitGroup sync.WaitGroup
+	logCreateChan := make(chan int, runtime.NumCPU())
+	// Start threads for creating new logs
+	for i := 0; i < runtime.NumCPU(); i++ {
+		go func() {
+			// Since we're not actually verifying the statements, we can just
+			// use random pubkeys, logIDs and witnesses
+			pub33 := [33]byte{}
+			_, err := rand.Read(pub33[:])
+			if err != nil {
+				panic(err)
+			}
 
-		var wg sync.WaitGroup
-		// Since we're not actually verifying the statements, we can just
-		// use random pubkeys, logIDs and witnesses
-		pub33 := [33]byte{}
-		_, err := rand.Read(pub33[:])
-		if err != nil {
-			panic(err)
-		}
-
-		for logIdx := 0; logIdx < PROOFSIZE_INCREMENTS; logIdx++ {
-			wg.Add(1)
-			go func(run, idx int) {
-
+			for idx := range logCreateChan {
 				// Read a random witness and log ID
 				witness := make([]byte, 32)
 				logId := [32]byte{}
@@ -75,40 +76,21 @@ func RunProofSizeBench() {
 
 				// startIdx determines the start position of the LogID in the
 				// large byteslice we use to cache them
-				startIdx := (run * PROOFSIZE_INCREMENTS * 32) + idx*32
 				// cache the generated LogID into the big array
-				copy(logIds[startIdx:], logId[:])
+				copy(logIds[idx*32:], logId[:])
 
 				witness = nil
 
-				wg.Done()
-			}(runIdx, logIdx)
-		}
-		// Wait for all logs to be finished in the goroutines
-		wg.Wait()
+				logCreateWaitGroup.Done()
+			}
+		}()
+	}
 
-		// Now make the server commit the tree
-		err = srv.Commit()
-		if err != nil {
-			panic(err)
-		}
-
-		// Make an arrays for keeping the total size of received
-		// proofs, one element per proofLogs element
-		receivedProofs := make([]int64, len(proofLogs))
-		receivedProofSizes := make([]int64, len(proofLogs))
-		rand.Seed(time.Now().UnixNano())
-
-		// This determines the range in which we can look for LogIDs
-		// in the cache array
-		maxLogId := ((runIdx + 1) * PROOFSIZE_INCREMENTS)
-
-		wg = sync.WaitGroup{}
-		// Get proof sizes for all requested # logs by getting all possible
-		// samples from the full tree
-		for i := 0; i < maxLogId; i++ {
-			wg.Add(1)
-			go func(pIdx int) {
+	var logSampleWaitGroup sync.WaitGroup
+	logSampleChan := make(chan int, runtime.NumCPU())
+	for i := 0; i < runtime.NumCPU(); i++ {
+		go func() {
+			for pIdx := range logSampleChan {
 				// Take random logIDs from the known logIDs the size of the
 				// desired number of proofs
 				logIdSets := make([][][]byte, len(proofLogs))
@@ -140,26 +122,53 @@ func RunProofSizeBench() {
 
 				// Get the proof for the keys in each of the sets and then
 				// calculate their size
-				var wg2 sync.WaitGroup
 				for ipL := range proofLogs {
 					if len(logIdSets[ipL]) > 0 {
-						wg2.Add(1)
-						go func(idx int) {
-							partialMPT, _ := srv.GetProofForKeys(logIdSets[idx])
-							atomic.AddInt64(&(receivedProofs[idx]), int64(1))
-							atomic.AddInt64(&(receivedProofSizes[idx]), int64(partialMPT.ByteSize()))
-							wg2.Done()
-						}(ipL)
+						partialMPT, _ := srv.GetProofForKeys(logIdSets[ipL])
+						atomic.AddInt64(&(receivedProofs[ipL]), int64(1))
+						atomic.AddInt64(&(receivedProofSizes[ipL]), int64(partialMPT.ByteSize()))
 					}
 				}
 
-				wg2.Wait()
 				logIdSets = nil
-				wg.Done()
-			}(i)
+				logSampleWaitGroup.Done()
+			}
+		}()
+	}
+
+	for runIdx := 0; runIdx < runCount; runIdx++ {
+		fmt.Printf("\rProof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
+
+		logCreateWaitGroup = sync.WaitGroup{}
+		for logIdx := runIdx * PROOFSIZE_INCREMENTS; logIdx < (runIdx+1)*PROOFSIZE_INCREMENTS; logIdx++ {
+			logCreateWaitGroup.Add(1)
+			logCreateChan <- logIdx
+		}
+		// Wait for all logs to be finished in the goroutines
+		logCreateWaitGroup.Wait()
+
+		// Now make the server commit the tree
+		err = srv.Commit()
+		if err != nil {
+			panic(err)
 		}
 
-		wg.Wait()
+		// Make an arrays for keeping the total size of received
+		// proofs, one element per proofLogs element
+		receivedProofs = make([]int64, len(proofLogs))
+		receivedProofSizes = make([]int64, len(proofLogs))
+		maxLogId = ((runIdx + 1) * PROOFSIZE_INCREMENTS)
+		rand.Seed(time.Now().UnixNano())
+
+		logSampleWaitGroup = sync.WaitGroup{}
+		// Get proof sizes for all requested # logs by getting all possible
+		// samples from the full tree
+		for i := 0; i < maxLogId; i++ {
+			logSampleWaitGroup.Add(1)
+			logSampleChan <- i
+		}
+
+		logSampleWaitGroup.Wait()
 
 		// Write the average sampled sizes to the TEX files
 		for idx := range proofLogs {
@@ -170,6 +179,8 @@ func RunProofSizeBench() {
 			}
 		}
 	}
+
+	close(logCreateChan)
 
 	// Write end markers to the tex files and we're done.
 	for idx, pl := range proofLogs {
