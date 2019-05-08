@@ -21,6 +21,8 @@ import (
 	"github.com/mit-dci/go-bverify/utils"
 )
 
+var headerIndex map[[32]byte]int64
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -177,16 +179,71 @@ func FindHeader(r io.ReadSeeker, hdr wire.BlockHeader) (int32, error) {
 	return 0, nil
 }
 
+func (s *SPVCon) IndexHeaders() error {
+	var cur wire.BlockHeader
+
+	s.headerMutex.Lock() // start header file ops
+	defer s.headerMutex.Unlock()
+
+	logging.Debugf("Indexing header chain")
+
+	s.headerFile.Seek(0, os.SEEK_SET)
+	blocks := 0
+	for {
+		blocks++
+		if blocks%10000 == 0 {
+			logging.Debugf("Indexed %d headers", blocks)
+		}
+		//	for blkhash.IsEqual(&target) {
+		pos, _ := s.headerFile.Seek(0, os.SEEK_CUR)
+		err := cur.Deserialize(s.headerFile)
+		if err != nil {
+			if err == io.EOF {
+				// We're done!
+				break
+			}
+			logging.Error(err)
+			return err
+		}
+		curhash := cur.BlockHash()
+
+		headerIndex[curhash] = pos
+	}
+
+	return nil
+}
+
 func (s *SPVCon) GetHeaderByBlockHash(hash *chainhash.Hash) (*wire.BlockHeader, error) {
+	var err error
+
 	numBlocks := s.GetHeaderTipHeight() // This does some nice sanity checks
+
+	if headerIndex == nil {
+		headerIndex = map[[32]byte]int64{}
+		err = s.IndexHeaders()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	s.headerMutex.Lock() // start header file ops
 	defer s.headerMutex.Unlock()
 
 	var cur wire.BlockHeader
 
-	for tries := 1; tries < utils.Min(10000, int(numBlocks)); tries++ {
-		_, err := s.headerFile.Seek(int64(-80*tries), os.SEEK_END)
+	pos, ok := headerIndex[*hash]
+	if ok {
+		s.headerFile.Seek(pos, os.SEEK_SET)
+		err = cur.Deserialize(s.headerFile)
+		if err != nil {
+			logging.Error(err)
+			return nil, err
+		}
+		return &cur, nil
+	}
+
+	for tries := 1; tries < utils.Min(1000, int(numBlocks)); tries++ {
+		_, err = s.headerFile.Seek(int64(-80*tries), os.SEEK_END)
 		if err != nil {
 			logging.Error(err)
 			return nil, err
@@ -199,6 +256,12 @@ func (s *SPVCon) GetHeaderByBlockHash(hash *chainhash.Hash) (*wire.BlockHeader, 
 			return nil, err
 		}
 		curhash := cur.BlockHash()
+
+		_, ok := headerIndex[curhash]
+		if !ok {
+			pos, _ := s.headerFile.Seek(0, os.SEEK_CUR)
+			headerIndex[curhash] = pos
+		}
 
 		if hash.IsEqual(&curhash) {
 			return &cur, nil

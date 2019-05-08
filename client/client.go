@@ -312,9 +312,17 @@ func (c *Client) Run(resync bool) error {
 	// Once Run() is called, we are a full client
 	c.fullClient = true
 
+	logging.Debugf("Using data directory %s", utils.ClientDataDirectory())
+
 	// Create the data directory. If it exists, this will yield an error
 	// but we're ignoring that.
-	os.MkdirAll(utils.ClientDataDirectory(), 0700)
+	err = os.MkdirAll(utils.ClientDataDirectory(), 0700)
+	if err == nil {
+		logging.Debugf("Created data directory %s", utils.ClientDataDirectory())
+	} else {
+		logging.Debugf("Could not create data directory: %s", err.Error())
+
+	}
 
 	// Open the database to store commitments and logs
 	c.db, err = buntdb.Open(path.Join(utils.ClientDataDirectory(), "data.db"))

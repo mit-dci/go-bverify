@@ -3,9 +3,18 @@ package mobile
 import (
 	"fmt"
 
+	"github.com/mit-dci/go-bverify/utils"
+
 	"github.com/mit-dci/go-bverify/client"
 	"github.com/mit-dci/go-bverify/logging"
 )
+
+var overrideDataDir string
+
+func SetDataDir(dataDir string) {
+	logging.Debugf("Setting datadir to %s", dataDir)
+	utils.SetOverrideClientDataDirectory(dataDir)
+}
 
 func RunBVerifyClient(hostName string, hostPort int) error {
 	var err error
@@ -19,7 +28,19 @@ func RunBVerifyClient(hostName string, hostPort int) error {
 		return err
 	}
 
-	go cli.Run(false)
+	logging.Debugf("Connected, running client")
+
+	go func() {
+		err = cli.Run(false)
+		if err != nil {
+			logging.Errorf("Error running client: %s", err.Error())
+		}
+	}()
 
 	return nil
+}
+
+func init() {
+	logging.SetLogLevel(int(logging.LogLevelDebug))
+
 }

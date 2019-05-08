@@ -594,12 +594,17 @@ func (srv *Server) Commit() error {
 	copy(srv.lastCommitment[:], commitment[:])
 
 	if srv.KeepCommitmentTree {
+		if srv.LastCommitMpt != nil {
+			srv.LastCommitMpt.Dispose()
+		}
 		srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(srv.fullmpt.Bytes())
 		if err != nil {
 			return err
 		}
 	}
-
+	if srv.lastDelta != nil {
+		srv.lastDelta.Dispose()
+	}
 	srv.lastDelta, _ = mpt.NewDeltaMPT(srv.fullmpt)
 	srv.processorsLock.Lock()
 	var wg sync.WaitGroup
@@ -636,6 +641,9 @@ func (srv *Server) Commit() error {
 		nextIdx := srv.GetNextLogIndex([32]byte{})
 		srv.RegisterLogStatement([32]byte{}, nextIdx, commitment)
 	} else {
+		if srv.LastConfirmedCommitMpt != nil {
+			srv.LastConfirmedCommitMpt.Dispose()
+		}
 		srv.LastConfirmedCommitMpt = srv.LastCommitMpt
 	}
 	commitment = nil

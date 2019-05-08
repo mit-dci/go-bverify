@@ -25,6 +25,7 @@ import (
 
 const APP_NAME = "B_Verify"
 
+var overrideClientDataDir string
 var maidenHash []byte
 
 // CloneByteSlice clones a byte slice and returns the clone
@@ -59,6 +60,7 @@ func GetBit(b []byte, idx uint) bool {
 }
 
 func DataDirectory() string {
+
 	if runtime.GOOS == "windows" {
 		return path.Join(os.Getenv("APPDATA"), APP_NAME)
 	} else if runtime.GOOS == "darwin" {
@@ -66,10 +68,18 @@ func DataDirectory() string {
 	} else if runtime.GOOS == "linux" {
 		return path.Join(os.Getenv("HOME"), fmt.Sprintf(".%s", strings.ToLower(APP_NAME)))
 	}
-	return ""
+	return "."
+}
+
+func SetOverrideClientDataDirectory(dataDir string) {
+	overrideClientDataDir = dataDir
 }
 
 func ClientDataDirectory() string {
+	if overrideClientDataDir != "" {
+		return overrideClientDataDir
+	}
+
 	if runtime.GOOS == "windows" {
 		return path.Join(os.Getenv("APPDATA"), APP_NAME+" Client")
 	} else if runtime.GOOS == "darwin" {
@@ -77,7 +87,7 @@ func ClientDataDirectory() string {
 	} else if runtime.GOOS == "linux" {
 		return path.Join(os.Getenv("HOME"), fmt.Sprintf(".%s", strings.ToLower(APP_NAME+"_client")))
 	}
-	return ""
+	return "."
 }
 
 func KeyHashFromPkScript(pkscript []byte) []byte {
@@ -185,4 +195,5 @@ func init() {
 	// Every commitment chain of b_verify servers will start with this hash - which
 	// makes it very easy to recognize there were no prior commitments
 	maidenHash, _ = hex.DecodeString("523e59cfc5235b915dc89de188d87449453b083a8b7d97c1ee64d875da403361")
+	overrideClientDataDir = ""
 }

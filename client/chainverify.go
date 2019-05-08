@@ -71,7 +71,7 @@ func (c *Client) verifyCommitment(comm *wire.Commitment) error {
 
 	// First and foremost, check if the block specified by the server is actually
 	// known to us in the header chain.
-	retry := 10
+	retry := 3
 	var header *btcwire.BlockHeader
 	var err error
 
@@ -235,7 +235,7 @@ func (c *Client) verifyLoop() {
 					// processed the reorg.
 					if err.Error() == "Block not found" {
 
-						logging.Warnf("The server says commitment %x is in block %s, but we don't have that. Retry (could be reorg-related)", comm.Commitment[:], comm.IncludedInBlock.String())
+						logging.Warnf("The server says commitment %x is in block %s (tx %s), but we don't have that. Retry (could be reorg-related)", comm.Commitment[:], comm.IncludedInBlock.String(), comm.TxHash.String())
 						time.Sleep(time.Second * 20)
 						retry = true
 						break

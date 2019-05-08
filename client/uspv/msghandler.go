@@ -76,7 +76,6 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 	moar, err := s.IngestHeaders(m)
 	if err != nil {
 		logging.Errorf("Header error: %s\n", err.Error())
-		return
 	}
 	// more to get? if so, ask for them and return
 	if moar {
