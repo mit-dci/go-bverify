@@ -27,7 +27,16 @@ var _ Node = &DictionaryLeafNode{}
 
 // NewDictionaryLeafNode creates a new dictionary leaf node
 func NewDictionaryLeafNode(key, value []byte) (*DictionaryLeafNode, error) {
-	return &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: true}, nil
+	node := &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: true}
+	return node, nil
+}
+
+func (dln *DictionaryLeafNode) Dispose() {
+	dln.key = nil
+	dln.value = nil
+	dln.commitmentHash = nil
+
+	dln = nil
 }
 
 // NewDictionaryLeafNode creates a new dictionary leaf node with already calculated hash

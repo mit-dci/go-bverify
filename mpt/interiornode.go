@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"sync"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
@@ -42,6 +41,15 @@ func NewInteriorNodeWithCachedHash(leftChild, rightChild Node, hash []byte) (*In
 	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: false, hash: hash}, nil
 }
 
+func (i *InteriorNode) Dispose() {
+	i.hash = nil
+	i.recalculateHash = false
+	i.changed = false
+	i.leftChild.Dispose()
+	i.rightChild.Dispose()
+	i = nil
+}
+
 func (i *InteriorNode) CalculateAllHashes() {
 
 }
@@ -49,35 +57,16 @@ func (i *InteriorNode) CalculateAllHashes() {
 // GetHash is the implementation of Node.GetHash
 func (i *InteriorNode) GetHash() []byte {
 	if i.recalculateHash {
-		hasher := fastsha256.New()
-
-		var leftHash []byte
-		var rightHash []byte
-		var wg sync.WaitGroup
+		payload := make([]byte, 0)
 		if i.leftChild != nil {
-			wg.Add(1)
-			go func() {
-				leftHash = i.leftChild.GetHash()
-				wg.Done()
-			}()
+			payload = append(payload, i.leftChild.GetHash()...)
 		}
 		if i.rightChild != nil {
-			wg.Add(1)
-			go func() {
-				rightHash = i.rightChild.GetHash()
-				wg.Done()
-			}()
+			payload = append(payload, i.rightChild.GetHash()...)
 		}
-		wg.Wait()
-
-		if len(leftHash) > 0 {
-			hasher.Write(leftHash)
-		}
-		if len(rightHash) > 0 {
-			hasher.Write(rightHash)
-		}
-		i.hash = hasher.Sum(nil)
-		hasher = nil
+		hash := fastsha256.Sum256(payload)
+		i.hash = make([]byte, len(hash))
+		copy(i.hash, hash[:])
 		i.recalculateHash = false
 	}
 	return i.hash
@@ -277,7 +266,9 @@ func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
 		if buf.Len() < int(iLen) {
 			return nil, fmt.Errorf("Specified length of left node not present in buffer")
 		}
-		leftNode, err = NodeFromBytes(buf.Next(int(iLen)))
+		nodeBytes := buf.Next(int(iLen))
+		leftNode, err = NodeFromBytes(nodeBytes)
+		nodeBytes = nil
 		if err != nil {
 			return nil, err
 		}
@@ -290,7 +281,9 @@ func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
 		if buf.Len() < int(iLen) {
 			return nil, fmt.Errorf("Specified length of right node not present in buffer")
 		}
-		rightNode, err = NodeFromBytes(buf.Next(int(iLen)))
+		nodeBytes := buf.Next(int(iLen))
+		rightNode, err = NodeFromBytes(nodeBytes)
+		nodeBytes = nil
 		if err != nil {
 			return nil, err
 		}
@@ -317,18 +310,25 @@ func (i *InteriorNode) Bytes() []byte {
 	buf.WriteByte(byte(NodeTypeInterior))
 	if i.leftChild != nil {
 		binary.Write(&buf, binary.BigEndian, int32(i.leftChild.ByteSize()))
-		buf.Write(i.leftChild.Bytes())
+		leftBytes := i.leftChild.Bytes()
+		buf.Write(leftBytes)
+		leftBytes = nil
 	} else {
 		binary.Write(&buf, binary.BigEndian, int32(0))
 	}
 
 	if i.rightChild != nil {
 		binary.Write(&buf, binary.BigEndian, int32(i.rightChild.ByteSize()))
-		buf.Write(i.rightChild.Bytes())
+		rightBytes := i.rightChild.Bytes()
+		buf.Write(rightBytes)
+		rightBytes = nil
 	} else {
 		binary.Write(&buf, binary.BigEndian, int32(0))
 	}
-	return buf.Bytes()
+	returnBytes := buf.Bytes()
+	buf.Truncate(0)
+
+	return returnBytes
 }
 
 // WriteGraphNodes is the implementation of Node.WriteGraphNodes

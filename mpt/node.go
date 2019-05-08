@@ -118,6 +118,9 @@ type Node interface {
 
 	// Writes a visualization of the node and its children to the writer in DOT format
 	WriteGraphNodes(w io.Writer)
+
+	// Dispose sets all used memory to nil and disposes children
+	Dispose()
 }
 
 // GetNodeHeight returns the height of a node in the MPT, calculated bottom (leaves) up.

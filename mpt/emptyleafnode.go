@@ -13,9 +13,8 @@ import (
 // hash of all 0s.
 //
 type EmptyLeafNode struct {
-	changed   bool
-	hash      []byte
-	graphHash []byte
+	changed bool
+	hash    []byte
 }
 
 // Compile time check if DictionaryLeafNode implements Node properly
@@ -24,10 +23,12 @@ var _ Node = &EmptyLeafNode{}
 // NewEmptyLeafNode creates a new empty leaf node
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
 	returnVal := &EmptyLeafNode{changed: true, hash: make([]byte, 32)}
-	hasher := fastsha256.New()
-	hasher.Write([]byte(fmt.Sprintf("%p", returnVal)))
-	returnVal.graphHash = hasher.Sum(nil)
 	return returnVal, nil
+}
+
+func (eln *EmptyLeafNode) Dispose() {
+	eln.hash = nil
+	eln = nil
 }
 
 // GetHash is the implementation of Node.GetHash
@@ -37,7 +38,10 @@ func (eln *EmptyLeafNode) GetHash() []byte {
 
 // GetGraphHash is the implementation of Node.GetGraphHash
 func (eln *EmptyLeafNode) GetGraphHash() []byte {
-	return eln.graphHash
+	hash := fastsha256.Sum256([]byte(fmt.Sprintf("%p", eln)))
+	returnHash := make([]byte, len(hash))
+	copy(returnHash, hash[:])
+	return returnHash
 }
 
 // SetLeftChild is the implementation of Node.SetLeftChild

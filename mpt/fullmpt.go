@@ -59,6 +59,11 @@ func (fm *FullMPT) Insert(key, value []byte) {
 	insertHelper(key, value, -1, fm.root)
 }
 
+func (fm *FullMPT) Dispose() {
+	fm.root.Dispose()
+	fm = nil
+}
+
 func insertHelper(key, value []byte, currentBitIndex int, currentNode Node) (Node, error) {
 	if currentNode.IsLeaf() {
 		if bytes.Equal(currentNode.GetKey(), key) {
@@ -207,8 +212,7 @@ func deleteHelper(key []byte, currentBitIndex int, currentNode Node, isRoot bool
 // infeasible to find a different set of (key, value) mappings
 // with the same commitment.
 func (fm *FullMPT) Commitment() []byte {
-	
-	
+
 	return fm.root.GetHash()
 }
 

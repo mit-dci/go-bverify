@@ -77,28 +77,31 @@ func copyMultiplePaths(matchingKeys [][]byte, copyNode Node, currentBitIndex int
 	// subcase: intermediate node
 	// divide up keys into those that match the right prefix (...1)
 	// and those that match the left prefix (...0)
-	matchLeft := make([][]byte, len(matchingKeys))
-	matchRight := make([][]byte, len(matchingKeys))
-	leftIdx := 0
-	rightIdx := 0
+	matchLeft := make([][]byte, 0)
+	matchRight := make([][]byte, 0)
 	for _, key := range matchingKeys {
 		bit := utils.GetBit(key, uint(currentBitIndex+1))
 		if bit {
-			matchRight[rightIdx] = key
-			rightIdx++
+			matchRight = append(matchRight, key)
 		} else {
-			matchLeft[leftIdx] = key
-			leftIdx++
+			matchLeft = append(matchLeft, key)
 		}
 	}
-	matchLeft = matchLeft[:leftIdx]
-	matchRight = matchRight[:rightIdx]
 
 	leftChild, _ := copyMultiplePaths(matchLeft, copyNode.GetLeftChild(), currentBitIndex+1)
 	rightChild, _ := copyMultiplePaths(matchRight, copyNode.GetRightChild(), currentBitIndex+1)
 	// We're copying a part of the tree that will end up being hashed to the same result. So
 	// cache the hash we already know to save re-hashing it!
+
+	matchLeft = nil
+	matchRight = nil
+
 	return NewInteriorNodeWithCachedHash(leftChild, rightChild, copyNode.GetHash())
+}
+
+func (pm *PartialMPT) Dispose() {
+	pm.root.Dispose()
+	pm = nil
 }
 
 // Get gets the value mapped to by key or null if the

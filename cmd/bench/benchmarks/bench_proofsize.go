@@ -70,6 +70,8 @@ func RunProofSizeBench() {
 				rand.Read(logId[:])
 				rand.Read(witness[:])
 
+				//fmt.Printf("Registering Log [%x] with witness [%x]\n", logId, witness)
+
 				// Create the log and write the first statement
 				srv.RegisterLogID(logId, pub33)
 				srv.RegisterLogStatement(logId, 0, witness[:])
@@ -127,6 +129,7 @@ func RunProofSizeBench() {
 						partialMPT, _ := srv.GetProofForKeys(logIdSets[ipL])
 						atomic.AddInt64(&(receivedProofs[ipL]), int64(1))
 						atomic.AddInt64(&(receivedProofSizes[ipL]), int64(partialMPT.ByteSize()))
+						partialMPT.Dispose()
 					}
 				}
 

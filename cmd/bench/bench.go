@@ -4,6 +4,7 @@ import (
 	"flag"
 
 	"github.com/mit-dci/go-bverify/cmd/bench/benchmarks"
+	"github.com/pkg/profile"
 )
 
 func main() {
@@ -21,8 +22,14 @@ func main() {
 	clientBenchClients := flag.Int("clientbenchclients", 1000, "Number of clients to emulate")
 	clientBenchLogs := flag.Int("clientbenchlogs", 1000, "Number of logs to write per client")
 	clientBenchStatements := flag.Int("clientbenchstatements", 100, "Number of statements to write to each log")
+	profileMemory := flag.Bool("profile", false, "Profile memory usage")
 
 	flag.Parse()
+
+	if *profileMemory {
+		defer profile.Start(profile.MemProfileRate(512 * 1024)).Stop()
+	}
+
 	if *runProofSize || *runAll {
 		benchmarks.RunProofSizeBench()
 	}

@@ -23,6 +23,11 @@ func NewDeltaMPT(fm *FullMPT) (*DeltaMPT, error) {
 	return &DeltaMPT{root: root}, nil
 }
 
+func (dm *DeltaMPT) Dispose() {
+	dm.root.Dispose()
+	dm = nil
+}
+
 // GetUpdatesForKey will, given a specific key, calculate
 // the updates that should be sent to a client
 // whose authenticated dictionary tracks this key.

@@ -21,6 +21,11 @@ func NewStub(hash []byte) (*Stub, error) {
 	return &Stub{hash: hash}, nil
 }
 
+func (s *Stub) Dispose() {
+	s.hash = nil
+	s = nil
+}
+
 // GetHash is the implementation of Node.GetHash
 func (s *Stub) GetHash() []byte {
 	return s.hash

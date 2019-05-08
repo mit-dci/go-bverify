@@ -25,6 +25,11 @@ func NewSetLeafNode(value []byte) (*SetLeafNode, error) {
 	return &SetLeafNode{value: value, changed: true}, nil
 }
 
+func (sln *SetLeafNode) Dispose() {
+	sln.value = nil
+	sln = nil
+}
+
 // GetHash is the implementation of Node.GetHash
 func (sln *SetLeafNode) GetHash() []byte {
 	return sln.value
