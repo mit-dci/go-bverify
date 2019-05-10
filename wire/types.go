@@ -129,9 +129,8 @@ func (f *ForeignStatement) Bytes() []byte {
 	if f.Proof == nil {
 		binary.Write(&b, binary.BigEndian, uint32(0))
 	} else {
-		pb := f.Proof.Bytes()
-		binary.Write(&b, binary.BigEndian, uint32(len(pb)))
-		b.Write(pb)
+		binary.Write(&b, binary.BigEndian, uint32(f.Proof.ByteSize()))
+		f.Proof.Serialize(&b)
 	}
 
 	return b.Bytes()
@@ -155,7 +154,7 @@ func ForeignStatementFromBytes(b []byte) *ForeignStatement {
 
 	binary.Read(buf, binary.BigEndian, &iLen)
 	if iLen > 0 {
-		f.Proof, _ = mpt.NewPartialMPTFromBytes(buf.Next(int(iLen)))
+		f.Proof, _ = mpt.DeserializeNewPartialMPT(buf)
 	}
 
 	return &f

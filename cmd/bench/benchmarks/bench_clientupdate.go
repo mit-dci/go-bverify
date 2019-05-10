@@ -3,6 +3,8 @@ package benchmarks
 import (
 	"crypto/rand"
 	"fmt"
+
+	"bytes"
 	mathrand "math/rand"
 	"net"
 	"os"
@@ -17,7 +19,7 @@ import (
 )
 
 const (
-	CLIENTUPDATE_TOTALLOGS = 1000000
+	CLIENTUPDATE_TOTALLOGS = 10000000
 	CLIENTUPDATE_SAMPLES   = 20
 )
 
@@ -55,7 +57,7 @@ func RunClientUpdateBench() {
 	// of updates and a varying number of logs being tracked
 	// the other shows a fixed number of logs tracked and a varying number
 	// of updates.
-	trackingLogSizes := []int{1, 10, 100, 1000}
+	trackingLogSizes := []int{1 /*10, 100, 1000*/}
 	runUpdateSizes := []int{1000, 10000, 100000, 1000000}
 
 	results := make([]clientUpdateBenchResultCollection, len(runUpdateSizes))
@@ -117,7 +119,7 @@ func RunClientUpdateBench() {
 	}
 
 	for _, pl := range trackingLogSizes {
-		table, _ := os.Create(fmt.Sprintf("table_clientupdate_sizes_%d_logs.tex", pl))
+		/*table, _ := os.Create(fmt.Sprintf("table_clientupdate_sizes_%d_logs.tex", pl))
 		table.Write([]byte("\\begin{table*}[t]\n"))
 		table.Write([]byte("\\centering\n"))
 		table.Write([]byte("\\begin{tabular}{ |c||c|c|c| }\n"))
@@ -144,7 +146,26 @@ func RunClientUpdateBench() {
 		table.Write([]byte(fmt.Sprintf("\\caption{The average size of updates per day, month and year for %s (over %d samples) when the \\sys server is maintaining $%d$ logs and updating an increasing selection of logs. The measured client does not update its log, to show the cost of being idle.}\n", logs, CLIENTUPDATE_SAMPLES, CLIENTUPDATE_TOTALLOGS)))
 		table.Write([]byte(fmt.Sprintf("\\label{table:clientupdate_sizes_%d_logs}\n", pl)))
 		table.Write([]byte("\\end{table*}	\n"))
-		table.Close()
+		table.Close()*/
+
+		graph, _ := os.Create(fmt.Sprintf("graph_clientupdate_sizes_%d_logs.tex", pl))
+		graph.Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\t\\begin{axis}[\n"))
+		graph.Write([]byte(fmt.Sprintf("\t\t\txlabel=Number of changed logs out of $10^7$,\n\t\tylabel=Size of proof updates per day for %d logs (in KB)]\n", pl)))
+		graph.Write([]byte("\n\t\t\t\\addplot[color=red,mark=x] coordinates {\n"))
+		graph.Write([]byte("\t\t\t\t(0,0)\n"))
+		for i, rus := range runUpdateSizes {
+			for _, r := range results[i].result {
+				if r.trackingLogCount == pl {
+					graph.Write([]byte(fmt.Sprintf("\t\t\t\t(%d,%.4f)\n", rus, r.averageUpdateSizeKB*144)))
+				}
+			}
+		}
+		graph.Write([]byte("\t\t};"))
+		graph.Write([]byte("\n\t\t\\end{axis}\n\t\\end{tikzpicture}\n"))
+		graph.Write([]byte("\t\\caption{Proof size per day}\n"))
+		graph.Write([]byte(fmt.Sprintf("\t\\label{graph_clientupdate_%d}\n", pl)))
+		graph.Write([]byte("\\end{figure}\n"))
+		graph.Close()
 	}
 
 	for _, pl := range trackingLogSizes {
@@ -196,10 +217,19 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	keys := make([][32]byte, len(proofLogs))
 	proofUpdatesChan := make(chan receivedProofUpdate, len(proofLogs)*(CLIENTUPDATE_SAMPLES+1))
 
+	dummyLogs := totalLogs
+	for _, pl := range proofLogs {
+		dummyLogs -= pl
+	}
+
 	// Create dummy logs, which returns the logIDs
-	logIds := makeDummyLogs(srv, totalLogs)
-	srv.Commit()
-	fmt.Printf("\n")
+	logIds := makeDummyLogs(srv, dummyLogs)
+	fmt.Printf("\nDummy logs created, committing the tree...")
+	err = srv.Commit()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("\nCommit done.\n")
 	results := make([]clientUpdateBenchResult, len(proofLogs))
 	updates := make([]int64, len(proofLogs))
 	updateSizes := make([]int64, len(proofLogs))
@@ -238,7 +268,8 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 				// Process the client proof and measure the time it took to update
 
 				start := time.Now()
-				partialMpts[clientIdx].ProcessUpdatesFromBytes(pu.proofUpdate)
+				buf := bytes.NewBuffer(pu.proofUpdate)
+				partialMpts[clientIdx].ProcessUpdatesFromReader(buf)
 				atomic.AddInt64(&(updateTimes[clientIdx]), time.Since(start).Nanoseconds())
 				partialMptLocks[clientIdx].Unlock()
 
@@ -264,6 +295,8 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		fmt.Printf("Error occured: %s", err.Error())
 	}
 
+	fmt.Printf("Creating clients..\n")
+
 	for i := 0; i < len(proofLogs); i++ {
 		keys[i] = [32]byte{}
 		rand.Read(keys[i][:])
@@ -272,6 +305,8 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		clients[i].OnError = onError
 		clients[i].SubscribeProofUpdates()
 	}
+
+	fmt.Printf("Creating logs for each client...\n")
 
 	for i, pl := range proofLogs {
 		clientLogIds[i] = make([][32]byte, pl)
@@ -282,8 +317,10 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		}
 	}
 
-	logIdIdx := make([]uint64, totalLogs)
-	logIdxsToChange := make([]int, totalLogs)
+	fmt.Printf("Shuffling dummy logs...\n")
+
+	logIdIdx := make([]uint64, dummyLogs)
+	logIdxsToChange := make([]int, dummyLogs)
 	for i := range logIdxsToChange {
 		logIdIdx[i] = 0
 		logIdxsToChange[i] = i
@@ -312,7 +349,10 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 			}
 		}
 		fmt.Printf("\r[%d/%d] Committing server [%d]                    ", i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
-		srv.Commit()
+		err := srv.Commit()
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	close(proofUpdatesChan)

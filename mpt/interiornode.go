@@ -1,7 +1,6 @@
 package mpt
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -31,14 +30,17 @@ var _ Node = &InteriorNode{}
 
 // NewInteriorNode creates a new interior node
 func NewInteriorNode(leftChild, rightChild Node) (*InteriorNode, error) {
-	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: true, hash: make([]byte, 32)}, nil
+	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, hash: make([]byte, 32), recalculateHash: true, hash: nil}, nil
 }
 
 // NewInteriorNodeWithCachedHash creates a new interior node with a cached hash.
 // This is useful when creating proof trees - since we're just substituting parts
 // of the tree with stubs, the resulting hashes are equal. Rehashing is a lot of overhead
 func NewInteriorNodeWithCachedHash(leftChild, rightChild Node, hash []byte) (*InteriorNode, error) {
-	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: false, hash: hash}, nil
+	node := &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, recalculateHash: false, hash: make([]byte, 32)}
+	copy(node.hash, hash)
+	return node, nil
+
 }
 
 func (i *InteriorNode) Dispose() {
@@ -249,41 +251,27 @@ func (i *InteriorNode) Equals(n Node) bool {
 }
 
 // NewInteriorNodeFromBytes deserializes the passed byteslice into a InteriorNode
-func NewInteriorNodeFromBytes(b []byte) (*InteriorNode, error) {
+func DeserializeNewInteriorNode(r io.Reader) (*InteriorNode, error) {
 	var err error
-	if len(b) == 0 {
-		return nil, fmt.Errorf("Need at least one byte in slice")
-	}
-	buf := bytes.NewBuffer(b[1:]) // Lob off type byte
 
 	var leftNode, rightNode Node
 	iLen := int32(0)
-	err = binary.Read(buf, binary.BigEndian, &iLen)
+	err = binary.Read(r, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
 	if iLen > 0 {
-		if buf.Len() < int(iLen) {
-			return nil, fmt.Errorf("Specified length of left node not present in buffer")
-		}
-		nodeBytes := buf.Next(int(iLen))
-		leftNode, err = NodeFromBytes(nodeBytes)
-		nodeBytes = nil
+		leftNode, err = DeserializeNode(r)
 		if err != nil {
 			return nil, err
 		}
 	}
-	err = binary.Read(buf, binary.BigEndian, &iLen)
+	err = binary.Read(r, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
 	if iLen > 0 {
-		if buf.Len() < int(iLen) {
-			return nil, fmt.Errorf("Specified length of right node not present in buffer")
-		}
-		nodeBytes := buf.Next(int(iLen))
-		rightNode, err = NodeFromBytes(nodeBytes)
-		nodeBytes = nil
+		rightNode, err = DeserializeNode(r)
 		if err != nil {
 			return nil, err
 		}
@@ -304,31 +292,21 @@ func (i *InteriorNode) ByteSize() int {
 	return size
 }
 
-// Bytes is the implementation of Node.Bytes
-func (i *InteriorNode) Bytes() []byte {
-	var buf bytes.Buffer
-	buf.WriteByte(byte(NodeTypeInterior))
+func (i *InteriorNode) Serialize(w io.Writer) {
+	w.Write([]byte{byte(NodeTypeInterior)})
 	if i.leftChild != nil {
-		binary.Write(&buf, binary.BigEndian, int32(i.leftChild.ByteSize()))
-		leftBytes := i.leftChild.Bytes()
-		buf.Write(leftBytes)
-		leftBytes = nil
+		binary.Write(w, binary.BigEndian, int32(i.leftChild.ByteSize()))
+		i.leftChild.Serialize(w)
 	} else {
-		binary.Write(&buf, binary.BigEndian, int32(0))
+		binary.Write(w, binary.BigEndian, int32(0))
 	}
 
 	if i.rightChild != nil {
-		binary.Write(&buf, binary.BigEndian, int32(i.rightChild.ByteSize()))
-		rightBytes := i.rightChild.Bytes()
-		buf.Write(rightBytes)
-		rightBytes = nil
+		binary.Write(w, binary.BigEndian, int32(i.rightChild.ByteSize()))
+		i.rightChild.Serialize(w)
 	} else {
-		binary.Write(&buf, binary.BigEndian, int32(0))
+		binary.Write(w, binary.BigEndian, int32(0))
 	}
-	returnBytes := buf.Bytes()
-	buf.Truncate(0)
-
-	return returnBytes
 }
 
 // WriteGraphNodes is the implementation of Node.WriteGraphNodes

@@ -1,7 +1,9 @@
 package mpt
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/utils"
 )
@@ -133,13 +135,28 @@ func (dm *DeltaMPT) ByteSize() int {
 }
 
 // Bytes serializes the DeltaMPT into a byte slice
+func (dm *DeltaMPT) Serialize(w io.Writer) {
+	dm.root.Serialize(w)
+}
+
 func (dm *DeltaMPT) Bytes() []byte {
-	return dm.root.Bytes()
+	b := make([]byte, dm.ByteSize())
+	buf := bytes.NewBuffer(b)
+	dm.Serialize(buf)
+	return b
+}
+
+func (dm *DeltaMPT) Copy() (*DeltaMPT, error) {
+	r, w := io.Pipe()
+	go func() {
+		dm.Serialize(w)
+	}()
+	return DeserializeNewDeltaMPT(r)
 }
 
 // NewDeltaMPTFromBytes parses a byte slice into a Delta MPT
-func NewDeltaMPTFromBytes(b []byte) (*DeltaMPT, error) {
-	possibleRoot, err := NodeFromBytes(b)
+func DeserializeNewDeltaMPT(r io.Reader) (*DeltaMPT, error) {
+	possibleRoot, err := DeserializeNode(r)
 	if err != nil {
 		return nil, err
 	}

@@ -36,10 +36,16 @@ type ServerState struct {
 
 type Server struct {
 	// Tracks the pubkeys for LogIDs
-	logIDToPubKey sync.Map
+	logIDToPubKey map[[32]byte][33]byte
 
-	// Tracks the last log index per log
-	logIDIndex sync.Map
+	// Guards the logIDToPubKey map
+	logIDToPubKeyLock sync.Mutex
+
+	// Tracks the pubkeys for LogIDs
+	logIDIndex map[[32]byte]uint64
+
+	// Guards the logIDIndex map
+	logIDIndexLock sync.Mutex
 
 	// The full MPT tracking all client logs
 	fullmpt *mpt.FullMPT
@@ -124,6 +130,10 @@ func NewServer(addr string, rescanBlocks int) (*Server, error) {
 
 	srv.fullmpt, _ = mpt.NewFullMPT()
 	srv.mptLock = sync.Mutex{}
+	srv.logIDToPubKey = map[[32]byte][33]byte{}
+	srv.logIDToPubKeyLock = sync.Mutex{}
+	srv.logIDIndex = map[[32]byte]uint64{}
+	srv.logIDIndexLock = sync.Mutex{}
 
 	srv.lastCommitment = [32]byte{}
 
@@ -137,11 +147,17 @@ func NewServer(addr string, rescanBlocks int) (*Server, error) {
 }
 
 func (srv *Server) RegisterLogID(logID [32]byte, controllingKey [33]byte) error {
-	_, ok := srv.logIDToPubKey.Load(logID)
+	srv.logIDToPubKeyLock.Lock()
+	_, ok := srv.logIDToPubKey[logID]
+	srv.logIDToPubKeyLock.Unlock()
+
 	if ok {
 		return fmt.Errorf("Duplicate log ID created: [%x]", logID)
 	}
-	srv.logIDToPubKey.Store(logID, controllingKey)
+	srv.logIDToPubKeyLock.Lock()
+	srv.logIDToPubKey[logID] = controllingKey
+	srv.logIDToPubKeyLock.Unlock()
+
 	if srv.Full {
 		// Persist the log ID and its controlling key
 		err := srv.commitmentDb.Update(func(tx *buntdb.Tx) error {
@@ -156,31 +172,37 @@ func (srv *Server) RegisterLogID(logID [32]byte, controllingKey [33]byte) error 
 }
 
 func (srv *Server) GetPubKeyForLogID(logID [32]byte) ([33]byte, error) {
-	pk, ok := srv.logIDToPubKey.Load(logID)
+	srv.logIDToPubKeyLock.Lock()
+	pk, ok := srv.logIDToPubKey[logID]
+	srv.logIDToPubKeyLock.Unlock()
+
 	if !ok {
 		return [33]byte{}, fmt.Errorf("LogID not found")
 	}
-	return pk.([33]byte), nil
+	return pk, nil
 }
-
 func (srv *Server) GetNextLogIndex(logID [32]byte) uint64 {
-	idx, ok := srv.logIDIndex.Load(logID)
+	srv.logIDIndexLock.Lock()
+	idx, ok := srv.logIDIndex[logID]
+	srv.logIDIndexLock.Unlock()
 	if !ok {
 		return uint64(0)
-	} else {
-		return (idx.(uint64)) + 1
 	}
+	return idx + 1
 }
 
 func (srv *Server) RegisterLogStatement(logID [32]byte, index uint64, statement []byte) error {
-	idx, ok := srv.logIDIndex.Load(logID)
+	srv.logIDIndexLock.Lock()
+	idx, ok := srv.logIDIndex[logID]
+	srv.logIDIndexLock.Unlock()
 	if !ok && index != uint64(0) {
 		return fmt.Errorf("Unexpected log index %d - expected 0", index)
-	} else if ok && index != (idx.(uint64))+1 {
-		return fmt.Errorf("Unexpected log index %d - expected %d", index, (idx.(uint64))+1)
+	} else if ok && index != idx+1 {
+		return fmt.Errorf("Unexpected log index %d - expected %d", index, idx+1)
 	}
-
-	srv.logIDIndex.Store(logID, index)
+	srv.logIDIndexLock.Lock()
+	srv.logIDIndex[logID] = index
+	srv.logIDIndexLock.Unlock()
 
 	if srv.Full {
 		// Persist the index
@@ -194,7 +216,10 @@ func (srv *Server) RegisterLogStatement(logID [32]byte, index uint64, statement 
 	}
 
 	srv.mptLock.Lock()
-	srv.fullmpt.Insert(logID[:], statement)
+	logIdClean := make([]byte, 32)
+	copy(logIdClean, logID[:])
+	srv.fullmpt.Insert(logIdClean, statement)
+	logIdClean = nil
 	srv.mptLock.Unlock()
 
 	return nil
@@ -418,6 +443,8 @@ func (srv *Server) loadCommitments() {
 }
 
 func (srv *Server) loadLogs() {
+	srv.logIDToPubKeyLock.Lock()
+	srv.logIDIndexLock.Lock()
 	err := srv.commitmentDb.View(func(tx *buntdb.Tx) error {
 		tx.AscendRange("", "key-", "key.", func(key, value string) bool {
 			logID, _ := hex.DecodeString(key[4:])
@@ -426,7 +453,7 @@ func (srv *Server) loadLogs() {
 			controllingKey := [33]byte{}
 			copy(controllingKey[:], []byte(value))
 
-			srv.logIDToPubKey.Store(logID32, controllingKey)
+			srv.logIDToPubKey[logID32] = controllingKey
 			return true
 		})
 
@@ -436,11 +463,15 @@ func (srv *Server) loadLogs() {
 			copy(logID32[:], logID)
 			idx, _ := strconv.ParseUint(value, 10, 64)
 
-			srv.logIDIndex.Store(logID32, idx)
+			srv.logIDIndex[logID32] = idx
 			return true
 		})
 		return nil
 	})
+
+	srv.logIDToPubKeyLock.Unlock()
+	srv.logIDIndexLock.Unlock()
+
 	if err != nil {
 		logging.Errorf("[Server] Error loading logs: %s", err.Error())
 		return
@@ -532,7 +563,7 @@ func (srv *Server) processMerkleProofs(block *btcwire.MsgBlock) error {
 			c.IncludedInBlock = &blockHash
 
 			if bytes.Equal(srv.lastCommitment[:], c.Commitment[:]) {
-				srv.LastConfirmedCommitMpt, _ = mpt.NewFullMPTFromBytes(srv.LastCommitMpt.Bytes())
+				srv.LastConfirmedCommitMpt, _ = srv.LastCommitMpt.Copy()
 				srv.commitState()
 			}
 
@@ -585,6 +616,7 @@ func (srv *Server) Commit() error {
 	if bytes.Equal(srv.lastCommitment[:], commitment[:]) {
 		commitment = nil
 		logging.Debugf("No changes to commit")
+		srv.mptLock.Unlock()
 		return nil
 	}
 
@@ -597,14 +629,18 @@ func (srv *Server) Commit() error {
 		if srv.LastCommitMpt != nil {
 			srv.LastCommitMpt.Dispose()
 		}
-		srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(srv.fullmpt.Bytes())
+		srv.LastCommitMpt, err = srv.fullmpt.Copy()
 		if err != nil {
+			srv.mptLock.Unlock()
 			return err
 		}
 	}
 	if srv.lastDelta != nil {
 		srv.lastDelta.Dispose()
 	}
+
+	fmt.Printf("Sending updates to processors..")
+
 	srv.lastDelta, _ = mpt.NewDeltaMPT(srv.fullmpt)
 	srv.processorsLock.Lock()
 	var wg sync.WaitGroup
@@ -619,9 +655,13 @@ func (srv *Server) Commit() error {
 
 	srv.processorsLock.Unlock()
 
+	fmt.Printf("Sent updates to processors, resetting MPT..")
+
 	srv.fullmpt.Reset()
 
+	fmt.Printf("Releasing lock on MPT...")
 	srv.mptLock.Unlock()
+	fmt.Printf("Released lock on MPT...")
 
 	if srv.Full {
 		txID, rawTx, err := srv.wallet.Commit(commitment[:])
@@ -677,19 +717,22 @@ func (srv *Server) loadState() error {
 	commitState := ServerState{}
 	json.Unmarshal(b, &commitState)
 
-	srv.LastCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
+	lastCommitmentBuffer := bytes.NewBuffer(commitState.LastCommitmentTree)
+
+	srv.LastCommitMpt, err = mpt.DeserializeNewFullMPT(lastCommitmentBuffer)
 	if err != nil {
 		return err
 	}
 
 	if commitState.LastConfirmedCommitmentTree != nil {
-		srv.LastConfirmedCommitMpt, err = mpt.NewFullMPTFromBytes(commitState.LastConfirmedCommitmentTree)
+		lastConfirmedCommitmentBuffer := bytes.NewBuffer(commitState.LastConfirmedCommitmentTree)
+		srv.LastConfirmedCommitMpt, err = mpt.DeserializeNewFullMPT(lastConfirmedCommitmentBuffer)
 		if err != nil {
 			return err
 		}
 	}
 
-	srv.fullmpt, err = mpt.NewFullMPTFromBytes(commitState.LastCommitmentTree)
+	srv.fullmpt, err = srv.LastCommitMpt.Copy()
 	if err != nil {
 		return err
 	}

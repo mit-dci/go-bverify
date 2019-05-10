@@ -27,7 +27,9 @@ var _ Node = &DictionaryLeafNode{}
 
 // NewDictionaryLeafNode creates a new dictionary leaf node
 func NewDictionaryLeafNode(key, value []byte) (*DictionaryLeafNode, error) {
-	node := &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: true}
+	node := &DictionaryLeafNode{key: make([]byte, len(key)), value: make([]byte, len(value)), commitmentHash: make([]byte, 32), changed: true, recalculateHash: true}
+	copy(node.key, key)
+	copy(node.value, value)
 	return node, nil
 }
 
@@ -47,7 +49,7 @@ func NewDictionaryLeafNodeCachedHash(key, value, hash []byte) (*DictionaryLeafNo
 // GetHash is the implementation of Node.GetHash
 func (dln *DictionaryLeafNode) GetHash() []byte {
 	if dln.recalculateHash {
-		dln.commitmentHash = crypto.WitnessKeyAndValue(dln.key[:], dln.value[:])
+		copy(dln.commitmentHash, crypto.WitnessKeyAndValue(dln.key[:], dln.value[:]))
 		dln.recalculateHash = false
 	}
 	return dln.commitmentHash
@@ -166,38 +168,41 @@ func (dln *DictionaryLeafNode) Equals(n Node) bool {
 	return false
 }
 
-// NewDictionaryLeafNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
-func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
+// DeserializeNewDictionaryLeafNode deserializes a DictionaryLeafNode from the passed in reader
+func DeserializeNewDictionaryLeafNode(r io.Reader) (*DictionaryLeafNode, error) {
 	var key, value []byte
-	if len(b) == 0 {
-		return nil, fmt.Errorf("Need at least 1 byte")
-	}
-
-	buf := bytes.NewBuffer(b[1:]) // lob off type byte
 
 	iLen := int32(0)
-	err := binary.Read(buf, binary.BigEndian, &iLen)
+	err := binary.Read(r, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
 	if iLen > 0 {
-		if buf.Len() < int(iLen) {
+		key = make([]byte, iLen)
+		i, err := r.Read(key)
+		if err != nil {
+			return nil, err
+		}
+		if int32(i) != iLen {
 			return nil, fmt.Errorf("Specified length of key not present in buffer")
 		}
-		key = buf.Next(int(iLen))
 	} else {
 		return nil, fmt.Errorf("Dictionary leaf node needs a key of at least 1 byte")
 	}
 	iLen = 0
-	err = binary.Read(buf, binary.BigEndian, &iLen)
+	err = binary.Read(r, binary.BigEndian, &iLen)
 	if err != nil {
 		return nil, err
 	}
 	if iLen > 0 {
-		if buf.Len() < int(iLen) {
+		value = make([]byte, iLen)
+		i, err := r.Read(value)
+		if err != nil {
+			return nil, err
+		}
+		if int32(i) != iLen {
 			return nil, fmt.Errorf("Specified length of value not present in buffer")
 		}
-		value = buf.Next(int(iLen))
 	} else {
 		return nil, fmt.Errorf("Dictionary leaf node needs a value of at least 1 byte")
 	}
@@ -206,14 +211,12 @@ func NewDictionaryLeafNodeFromBytes(b []byte) (*DictionaryLeafNode, error) {
 }
 
 // Bytes is the implementation of Node.Bytes
-func (dln *DictionaryLeafNode) Bytes() []byte {
-	var buf bytes.Buffer
-	buf.WriteByte(byte(NodeTypeDictionaryLeaf))
-	binary.Write(&buf, binary.BigEndian, int32(len(dln.key)))
-	buf.Write(dln.key)
-	binary.Write(&buf, binary.BigEndian, int32(len(dln.value)))
-	buf.Write(dln.value)
-	return buf.Bytes()
+func (dln *DictionaryLeafNode) Serialize(w io.Writer) {
+	w.Write([]byte{byte(NodeTypeDictionaryLeaf)})
+	binary.Write(w, binary.BigEndian, int32(len(dln.key)))
+	w.Write(dln.key)
+	binary.Write(w, binary.BigEndian, int32(len(dln.value)))
+	w.Write(dln.value)
 }
 
 func (dln *DictionaryLeafNode) ByteSize() int {

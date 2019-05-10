@@ -242,7 +242,8 @@ func (c *Client) ReceiveLoop() {
 		// by the client. Hence, we try to parse it as a MPT and then send it over the
 		// proof channel. This channel is read from in the RequestProof method.
 		if t == wire.MessageTypeProof {
-			mpt, err := mpt.NewPartialMPTFromBytes(p)
+			buf := bytes.NewBuffer(p)
+			mpt, err := mpt.DeserializeNewPartialMPT(buf)
 			if err != nil {
 				// Something wrong parsing the returned MPT data. Close the connection
 				// and exit the loop.

@@ -3,6 +3,7 @@ package mpt
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/utils"
 )
@@ -147,8 +148,8 @@ func (pm *PartialMPT) Commitment() []byte {
 // ProcessUpdatesFromBytes updates the authenticated dictionary
 // to reflect changes from the passed byte slice (of a serialized PartialMPT).
 // This will change the commitment as mappings have been inserted or removed
-func (pm *PartialMPT) ProcessUpdatesFromBytes(b []byte) error {
-	dmpt, err := NewDeltaMPTFromBytes(b)
+func (pm *PartialMPT) ProcessUpdatesFromReader(r io.Reader) error {
+	dmpt, err := DeserializeNewDeltaMPT(r)
 	if err != nil {
 		return err
 	}
@@ -177,13 +178,20 @@ func (pm *PartialMPT) ByteSize() int {
 }
 
 // Bytes serializes the PartialMPT into a byte slice
+func (pm *PartialMPT) Serialize(w io.Writer) {
+	pm.root.Serialize(w)
+}
+
 func (pm *PartialMPT) Bytes() []byte {
-	return pm.root.Bytes()
+	b := make([]byte, pm.ByteSize())
+	buf := bytes.NewBuffer(b)
+	pm.Serialize(buf)
+	return b
 }
 
 // NewPartialMPTFromBytes parses a byte slice into a Partial MPT
-func NewPartialMPTFromBytes(b []byte) (*PartialMPT, error) {
-	possibleRoot, err := NodeFromBytes(b)
+func DeserializeNewPartialMPT(r io.Reader) (*PartialMPT, error) {
+	possibleRoot, err := DeserializeNode(r)
 	if err != nil {
 		return nil, err
 	}

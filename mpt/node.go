@@ -91,8 +91,8 @@ type Node interface {
 	// MarkUnchangedAll marks the entire (sub)tree rooted at this node as unchanged
 	MarkUnchangedAll()
 
-	// Bytes returns a serialized representation of this node
-	Bytes() []byte
+	// Serialize writes a serialized representation of this node into a io.Writer
+	Serialize(w io.Writer)
 
 	// ByteSize returns the length of Bytes() without actually serializing first
 	ByteSize() int
@@ -134,37 +134,38 @@ func GetNodeHeight(node Node) int {
 }
 
 // NodeFromBytes will deserialize the proper node type from a byte slice
-func NodeFromBytes(b []byte) (Node, error) {
-	if len(b) == 0 {
-		return nil, fmt.Errorf("Need at least one byte in slice")
+func DeserializeNode(r io.Reader) (Node, error) {
+	typeByte := make([]byte, 1)
+	i, err := r.Read(typeByte)
+	if err != nil {
+		return nil, err
 	}
-	if b[0] == byte(NodeTypeStub) {
-		return NewStubFromBytes(b)
-	}
-
-	if b[0] == byte(NodeTypeDictionaryLeaf) {
-		return NewDictionaryLeafNodeFromBytes(b)
+	if i != 1 {
+		return nil, fmt.Errorf("Unable to read type byte")
 	}
 
-	if b[0] == byte(NodeTypeEmptyLeaf) {
-		return NewEmptyLeafNodeFromBytes(b)
+	if typeByte[0] == byte(NodeTypeStub) {
+		return DeserializeNewStub(r)
 	}
 
-	if b[0] == byte(NodeTypeInterior) {
-		return NewInteriorNodeFromBytes(b)
+	if typeByte[0] == byte(NodeTypeDictionaryLeaf) {
+		return DeserializeNewDictionaryLeafNode(r)
 	}
 
-	if b[0] == byte(NodeTypeSetLeaf) {
-		return NewSetLeafNodeFromBytes(b)
+	if typeByte[0] == byte(NodeTypeEmptyLeaf) {
+		return NewEmptyLeafNode()
 	}
 
-	return nil, fmt.Errorf("Unknown leaf type %x", b[0])
+	if typeByte[0] == byte(NodeTypeInterior) {
+		return DeserializeNewInteriorNode(r)
+	}
+	return nil, fmt.Errorf("Unknown leaf type %x", typeByte[0])
 }
 
 // UpdateNodeFromBytes tries updating from the passed byte slice creating
 // new nodes where it's not needed, preserving ones known in n and not in the update.
-func UpdateNodeFromBytes(n Node, b []byte) (Node, error) {
-	n2, err := NodeFromBytes(b)
+func UpdateNodeFromReader(n Node, r io.Reader) (Node, error) {
+	n2, err := DeserializeNode(r)
 	if err != nil {
 		return nil, err
 	}

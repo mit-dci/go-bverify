@@ -143,8 +143,8 @@ func (c *Client) GetProofForCommitment(commitment [32]byte, logIds [][]byte) (*m
 		if err != nil {
 			return err
 		}
-
-		fullTree, err = mpt.NewFullMPTFromBytes([]byte(proof))
+		buf := bytes.NewBuffer([]byte(proof))
+		fullTree, err = mpt.DeserializeNewFullMPT(buf)
 		if err != nil {
 			return err
 		}

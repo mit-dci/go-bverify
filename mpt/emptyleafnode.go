@@ -1,20 +1,19 @@
 package mpt
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
 
+var emptyLeafNodeHash []byte
+
 // EmptyLeafNode represents an empty leaf in the tree. Empty leaves
 // do not have associated values and use the special marker
 // hash of all 0s.
 //
 type EmptyLeafNode struct {
-	changed bool
-	hash    []byte
 }
 
 // Compile time check if DictionaryLeafNode implements Node properly
@@ -22,18 +21,16 @@ var _ Node = &EmptyLeafNode{}
 
 // NewEmptyLeafNode creates a new empty leaf node
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
-	returnVal := &EmptyLeafNode{changed: true, hash: make([]byte, 32)}
-	return returnVal, nil
+	return &EmptyLeafNode{}, nil
 }
 
 func (eln *EmptyLeafNode) Dispose() {
-	eln.hash = nil
 	eln = nil
 }
 
 // GetHash is the implementation of Node.GetHash
 func (eln *EmptyLeafNode) GetHash() []byte {
-	return eln.hash
+	return emptyLeafNodeHash
 }
 
 // GetGraphHash is the implementation of Node.GetGraphHash
@@ -96,17 +93,17 @@ func (eln *EmptyLeafNode) IsStub() bool {
 
 // Changed is the implementation of Node.Changed
 func (eln *EmptyLeafNode) Changed() bool {
-	return eln.changed
+	return false
 }
 
 // MarkChangedAll is the implementation of Node.MarkChangedAll
 func (eln *EmptyLeafNode) MarkChangedAll() {
-	eln.changed = true
+
 }
 
 // MarkUnchangedAll is the implementation of Node.MarkUnchangedAll
 func (eln *EmptyLeafNode) MarkUnchangedAll() {
-	eln.changed = false
+
 }
 
 // CountHashesRequiredForGetHash is the implementation of Node.CountHashesRequiredForGetHash
@@ -144,18 +141,15 @@ func (eln *EmptyLeafNode) ByteSize() int {
 	return 1
 }
 
-// NewEmptyLeafNodeFromBytes deserializes the passed byteslice into a DictionaryLeafNode
-func NewEmptyLeafNodeFromBytes(b []byte) (*EmptyLeafNode, error) {
-	return NewEmptyLeafNode()
-}
-
 // Bytes is the implementation of Node.Bytes
-func (eln *EmptyLeafNode) Bytes() []byte {
-	var buf bytes.Buffer
-	buf.WriteByte(byte(NodeTypeEmptyLeaf))
-	return buf.Bytes()
+func (eln *EmptyLeafNode) Serialize(w io.Writer) {
+	w.Write([]byte{byte(NodeTypeEmptyLeaf)})
 }
 
 func (eln *EmptyLeafNode) WriteGraphNodes(w io.Writer) {
 	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,solid\"\n\tfontcolor=gray50\n\tcolor=gray50\n\tfillcolor=white];\n", eln.GetGraphHash())))
+}
+
+func init() {
+	emptyLeafNodeHash = make([]byte, 32)
 }

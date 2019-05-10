@@ -59,6 +59,7 @@ func (lp *ServerLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
 		if err != nil {
 			return err
 		}
+
 		err = lp.conn.WriteMessage(wire.MessageTypeProofUpdate, clientDelta.Bytes())
 		if err != nil {
 			return err

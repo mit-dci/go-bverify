@@ -3,6 +3,7 @@ package mpt
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/mit-dci/go-bverify/utils"
 )
@@ -259,14 +260,21 @@ func (fm *FullMPT) ByteSize() int {
 	return fm.root.ByteSize()
 }
 
-// Bytes serializes the FullMPT into a byte slice
 func (fm *FullMPT) Bytes() []byte {
-	return fm.root.Bytes()
+	b := make([]byte, fm.ByteSize())
+	buf := bytes.NewBuffer(b)
+	fm.Serialize(buf)
+	return b
+}
+
+// Bytes serializes the FullMPT into a byte slice
+func (fm *FullMPT) Serialize(w io.Writer) {
+	fm.root.Serialize(w)
 }
 
 // NewFullMPTFromBytes parses a byte slice into a Full MPT
-func NewFullMPTFromBytes(b []byte) (*FullMPT, error) {
-	possibleRoot, err := NodeFromBytes(b)
+func DeserializeNewFullMPT(r io.Reader) (*FullMPT, error) {
+	possibleRoot, err := DeserializeNode(r)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +286,15 @@ func NewFullMPTFromBytes(b []byte) (*FullMPT, error) {
 
 	// TODO: Should check if there's stub nodes in the tree we deserialized
 	return newFullMPTWithRoot(in), nil
+}
+
+func (fm *FullMPT) Copy() (*FullMPT, error) {
+	r, w := io.Pipe()
+	go func() {
+		fm.Serialize(w)
+	}()
+
+	return DeserializeNewFullMPT(r)
 }
 
 func (fm *FullMPT) Graph() []byte {

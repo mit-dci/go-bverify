@@ -2,6 +2,7 @@ package mpt
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 )
@@ -18,7 +19,10 @@ var _ Node = &Stub{}
 
 // NewStub creates a new stub from a hash
 func NewStub(hash []byte) (*Stub, error) {
-	return &Stub{hash: hash}, nil
+	stub := &Stub{hash: make([]byte, len(hash))}
+	copy(stub.hash, hash)
+	return stub, nil
+
 }
 
 func (s *Stub) Dispose() {
@@ -132,16 +136,34 @@ func (s *Stub) Equals(s2 Node) bool {
 }
 
 // NewStubFromBytes deserializes the passed byteslice into a Stub
-func NewStubFromBytes(b []byte) (*Stub, error) {
-	return NewStub(b[1:]) // Lob off the type byte
+func DeserializeNewStub(r io.Reader) (*Stub, error) {
+	var stub []byte
+
+	iLen := int32(0)
+	err := binary.Read(r, binary.BigEndian, &iLen)
+	if err != nil {
+		return nil, err
+	}
+	if iLen > 0 {
+		stub = make([]byte, iLen)
+		i, err := r.Read(stub)
+		if err != nil {
+			return nil, err
+		}
+		if int32(i) != iLen {
+			return nil, fmt.Errorf("Specified length of stub not present in buffer")
+		}
+	} else {
+		return nil, fmt.Errorf("Dictionary leaf node needs a stub of at least 1 byte")
+	}
+
+	return NewStub(stub)
 }
 
-// Bytes is the implementation of Node.Bytes
-func (s *Stub) Bytes() []byte {
-	var buf bytes.Buffer
-	buf.WriteByte(byte(NodeTypeStub))
-	buf.Write(s.hash)
-	return buf.Bytes()
+func (s *Stub) Serialize(w io.Writer) {
+	w.Write([]byte{byte(NodeTypeStub)})
+	binary.Write(w, binary.BigEndian, int32(len(s.hash)))
+	w.Write(s.hash)
 }
 
 // ByteSize returns the length of Bytes() without actually serializing it
