@@ -288,6 +288,10 @@ func DeserializeNewFullMPT(r io.Reader) (*FullMPT, error) {
 	return newFullMPTWithRoot(in), nil
 }
 
+func (fm *FullMPT) CountRecalculations() int {
+	return fm.root.CountHashesRequiredForGetHash()
+}
+
 func (fm *FullMPT) Copy() (*FullMPT, error) {
 	copiedRoot, err := fm.root.DeepCopy()
 	if err != nil {
