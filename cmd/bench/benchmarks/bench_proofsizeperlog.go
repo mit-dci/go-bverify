@@ -85,6 +85,7 @@ func RunProofSizePerLogBench() {
 					partialMPT, _ := srv.GetProofForKeys(logIdSets[idx])
 					atomic.AddInt64(&receivedProofs, int64(1))
 					atomic.AddInt64(&receivedProofSizes, int64(partialMPT.ByteSize()))
+					partialMPT.Dispose()
 					wg2.Done()
 				}(ipL)
 			}
