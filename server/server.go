@@ -610,6 +610,14 @@ func (srv *Server) Commitment() []byte {
 	return srv.fullmpt.Commitment()
 }
 
+func (srv *Server) CountNodes() int {
+	return srv.fullmpt.CountNodes()
+}
+
+func (srv *Server) CountRecalculations() int {
+	return srv.fullmpt.CountRecalculations()
+}
+
 func (srv *Server) Commit() error {
 	srv.mptLock.Lock()
 	commitment := srv.fullmpt.Commitment()
