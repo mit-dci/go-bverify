@@ -639,9 +639,8 @@ func (srv *Server) Commit() error {
 		srv.lastDelta.Dispose()
 	}
 
-	fmt.Printf("Sending updates to processors..")
-
 	srv.lastDelta, _ = mpt.NewDeltaMPT(srv.fullmpt)
+
 	srv.processorsLock.Lock()
 	var wg sync.WaitGroup
 	for _, pr := range srv.processors {
@@ -655,13 +654,9 @@ func (srv *Server) Commit() error {
 
 	srv.processorsLock.Unlock()
 
-	fmt.Printf("Sent updates to processors, resetting MPT..")
-
 	srv.fullmpt.Reset()
 
-	fmt.Printf("Releasing lock on MPT...")
 	srv.mptLock.Unlock()
-	fmt.Printf("Released lock on MPT...")
 
 	if srv.Full {
 		txID, rawTx, err := srv.wallet.Commit(commitment[:])

@@ -15,7 +15,7 @@ import (
 
 const (
 	CLIENTDELTASIZE_TOTALLOGS = 10000000
-	CLIENTDELTASIZE_SAMPLES   = 10
+	CLIENTDELTASIZE_SAMPLES   = 5
 )
 
 // RunClientDeltaSizeBench will create 1M logs and then
@@ -32,7 +32,7 @@ func RunClientDeltaSizeBench() {
 	// Output a TEX graph
 	graph, _ := os.Create("graph_clientdeltasize.tex")
 	graph.Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
-	graph.Write([]byte("\t\txlabel=Number of updated logs\n\t\tylabel=Delta update size (bytes)]\n"))
+	graph.Write([]byte("\t\txlabel=Number of updated logs out of $10^7$,\n\t\tylabel=Delta update size (bytes)]\n"))
 	graph.Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
 	graph.Write([]byte("\t\t\t(0,0)\n"))
 	defer graph.Close()
@@ -74,7 +74,9 @@ func RunClientDeltaSizeBench() {
 
 	logId := [32]byte{}
 
-	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 100; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_TOTALLOGS / 100 {
+	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 50; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_TOTALLOGS / 50 {
+		updates = 0
+		updateSizes = 0
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
 			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]            ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES)
 			// pick a changing random subset of logs every run
