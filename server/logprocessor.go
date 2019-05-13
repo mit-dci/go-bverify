@@ -148,12 +148,13 @@ func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage)
 			copy(keys[i], key32[:])
 		}
 	}
-
+	fmt.Printf("Retrieving proof for %d keys\n", len(keys))
 	proof, err := lp.server.GetProofForKeys(keys)
 	if err != nil {
 		return err
 	}
-	lp.conn.WriteMessage(wire.MessageTypeProof, proof.Bytes())
+	lp.conn.WriteMessagePrefix(wire.MessageTypeProof, proof.ByteSize())
+	proof.Serialize(lp.conn)
 	return nil
 
 }

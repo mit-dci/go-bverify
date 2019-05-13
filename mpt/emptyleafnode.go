@@ -8,6 +8,7 @@ import (
 )
 
 var emptyLeafNodeHash []byte
+var sharedEmptyLeafNode *EmptyLeafNode
 
 // EmptyLeafNode represents an empty leaf in the tree. Empty leaves
 // do not have associated values and use the special marker
@@ -21,7 +22,7 @@ var _ Node = &EmptyLeafNode{}
 
 // NewEmptyLeafNode creates a new empty leaf node
 func NewEmptyLeafNode() (*EmptyLeafNode, error) {
-	return &EmptyLeafNode{}, nil
+	return sharedEmptyLeafNode, nil
 }
 
 func (eln *EmptyLeafNode) Dispose() {
@@ -150,6 +151,11 @@ func (eln *EmptyLeafNode) WriteGraphNodes(w io.Writer) {
 	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,solid\"\n\tfontcolor=gray50\n\tcolor=gray50\n\tfillcolor=white];\n", eln.GetGraphHash())))
 }
 
+func (eln *EmptyLeafNode) DeepCopy() (Node, error) {
+	return sharedEmptyLeafNode, nil
+}
+
 func init() {
 	emptyLeafNodeHash = make([]byte, 32)
+	sharedEmptyLeafNode = &EmptyLeafNode{}
 }

@@ -26,6 +26,18 @@ func (c *Connection) Close() error {
 	return c.conn.Close()
 }
 
+func (c *Connection) Write(p []byte) (n int, err error) {
+	c.writeLock.Lock()
+	n, err = c.conn.Write(p)
+	c.writeLock.Unlock()
+	return
+}
+
+func (c *Connection) Read(p []byte) (n int, err error) {
+	n, err = c.conn.Read(p)
+	return
+}
+
 // ReadNextMessage reads a type, length and then payload from the transport and
 // returns the message type and payload to the caller.
 func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
@@ -64,23 +76,40 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	return MessageType(bType[0]), bMsg, nil
 }
 
-// WriteMessage writes a message to the transport of the given type t and payload m
-// it uses a  Mutex to prevent two threads writing at the same time.
-func (c *Connection) WriteMessage(t MessageType, m []byte) error {
+// WriteMessagePrefix writes a message prefix to the transport of the given type t and length l
+func (c *Connection) WriteMessagePrefix(t MessageType, l int) error {
 	c.writeLock.Lock()
 	bMsg := make([]byte, 5)
 	bMsg[0] = byte(t)
-	binary.BigEndian.PutUint32(bMsg[1:], uint32(len(m)))
-	bMsg = append(bMsg, m...)
-	//fmt.Printf("> [%x]\n", bMsg)
+	binary.BigEndian.PutUint32(bMsg[1:], uint32(l))
 	n, err := c.conn.Write(bMsg)
 	if err != nil {
 		c.writeLock.Unlock()
 		return err
 	}
-	if n != len(bMsg) {
+	if n != 5 {
 		c.writeLock.Unlock()
-		return fmt.Errorf("Not all bytes written. Expected %d, got %d", len(bMsg), n)
+		return fmt.Errorf("Not all bytes written. Expected 5, got %d", n)
+	}
+
+	c.writeLock.Unlock()
+	return nil
+}
+
+// WriteMessage writes a message to the transport of the given type t and payload m
+// it uses a  Mutex to prevent two threads writing at the same time.
+func (c *Connection) WriteMessage(t MessageType, m []byte) error {
+	c.WriteMessagePrefix(t, len(m))
+
+	c.writeLock.Lock()
+	n, err := c.conn.Write(m)
+	if err != nil {
+		c.writeLock.Unlock()
+		return err
+	}
+	if n != len(m) {
+		c.writeLock.Unlock()
+		return fmt.Errorf("Not all bytes written. Expected %d, got %d", len(m), n)
 	}
 	c.writeLock.Unlock()
 	return nil

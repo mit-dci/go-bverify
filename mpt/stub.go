@@ -175,3 +175,7 @@ func (s *Stub) ByteSize() int {
 func (s *Stub) WriteGraphNodes(w io.Writer) {
 	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,dashed\"\n\ttextcolor=blue\n\tcolor=blue\n\tfillcolor=lightblue];\n", s.GetGraphHash())))
 }
+
+func (s *Stub) DeepCopy() (Node, error) {
+	return NewStub(s.hash)
+}

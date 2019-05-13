@@ -121,6 +121,8 @@ type Node interface {
 
 	// Dispose sets all used memory to nil and disposes children
 	Dispose()
+
+	DeepCopy() (Node, error)
 }
 
 // GetNodeHeight returns the height of a node in the MPT, calculated bottom (leaves) up.

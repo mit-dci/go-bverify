@@ -610,9 +610,16 @@ func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
 		return nil, err
 	}
 
+	var proof *mpt.PartialMPT
 	// Wait for the proof response and return it to the client
-	// TODO: Timeout?
-	proof := <-c.proof
+
+	select {
+	case proof = <-c.proof:
+	case err = <-c.errChan:
+		return nil, err
+	case <-time.After(10 * time.Second):
+		return nil, fmt.Errorf("Timeout waiting for proof")
+	}
 
 	return proof, nil
 }

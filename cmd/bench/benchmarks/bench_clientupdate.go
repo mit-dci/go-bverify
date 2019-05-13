@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	CLIENTUPDATE_TOTALLOGS = 10000000
+	CLIENTUPDATE_TOTALLOGS = 1000000
 	CLIENTUPDATE_SAMPLES   = 20
 )
 
@@ -240,8 +240,11 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	var wg sync.WaitGroup
 	wg.Add(runtime.NumCPU())
 	for iThreads := 0; iThreads < runtime.NumCPU(); iThreads++ {
-		go func() {
+		go func(ith int) {
+			fmt.Printf("\nOpened channel %d proofUpdatesChan\n", ith)
+
 			for pu := range proofUpdatesChan {
+				fmt.Printf("\nReceived update on channel %d proofUpdatesChan\n", ith)
 				clientIdx := -1
 				for i := 0; i < len(clients); i++ {
 					if clients[i] == pu.forClient {
@@ -252,14 +255,20 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 				if clientIdx == -1 {
 					continue
 				}
+
 				partialMptLocks[clientIdx].Lock()
+
+				fmt.Printf("Acquired lock on partialMPT in %d proofUpdatesChan\n", ith)
+
 				if partialMpts[clientIdx] == nil {
 					// If we don't have a partial MPT for this client, then we
 					// never received *any* proofs. A delta will  not help us as
 					// it will not include the state of the tree prior to us joining
 					// the log. So we need to fetch the PartialMPT first
 
+					fmt.Printf("Retrieving partialMPT in %d proofUpdatesChan\n", ith)
 					partialMpts[clientIdx], err = clients[clientIdx].RequestProof([][32]byte{})
+					fmt.Printf("Retrieved partialMPT in %d proofUpdatesChan\n", ith)
 					if err != nil {
 						fmt.Printf("Error while fetching initial proof: %s\n", err.Error())
 					}
@@ -269,13 +278,19 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 
 				start := time.Now()
 				buf := bytes.NewBuffer(pu.proofUpdate)
+				fmt.Printf("Processing updates to partialMPT in %d proofUpdatesChan\n", ith)
 				partialMpts[clientIdx].ProcessUpdatesFromReader(buf)
 				atomic.AddInt64(&(updateTimes[clientIdx]), time.Since(start).Nanoseconds())
+				fmt.Printf("Freeing lock on partialMPT in %d proofUpdatesChan\n", ith)
 				partialMptLocks[clientIdx].Unlock()
+				fmt.Printf("Freed lock on partialMPT in %d proofUpdatesChan\n", ith)
 
 				atomic.AddInt64(&(updates[clientIdx]), 1)
 				atomic.AddInt64(&updateSizes[clientIdx], int64(len(pu.proofUpdate)))
+				fmt.Printf("\nFinished update on channel %d proofUpdatesChan\n", ith)
 			}
+
+			fmt.Printf("\nClosed channel %d proofUpdatesChan\n", ith)
 
 			for i, pl := range proofLogs {
 				updateSizeKB := float64(updateSizes[i]) / float64(updates[i]) / float64(1000)
@@ -283,8 +298,11 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 
 				results[i] = clientUpdateBenchResult{trackingLogCount: pl, averageUpdateSizeKB: updateSizeKB, averageUpdateTimeMS: updateTimeMS}
 			}
+
+			fmt.Printf("Calling wg.Done() on %d\n", ith)
+
 			wg.Done()
-		}()
+		}(iThreads)
 	}
 
 	onProofUpdate := func(proofUpdate []byte, client *client.Client) {

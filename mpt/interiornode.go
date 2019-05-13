@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
 )
@@ -30,7 +31,7 @@ var _ Node = &InteriorNode{}
 
 // NewInteriorNode creates a new interior node
 func NewInteriorNode(leftChild, rightChild Node) (*InteriorNode, error) {
-	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, hash: make([]byte, 32), recalculateHash: true, hash: nil}, nil
+	return &InteriorNode{leftChild: leftChild, rightChild: rightChild, changed: true, hash: make([]byte, 32), recalculateHash: true}, nil
 }
 
 // NewInteriorNodeWithCachedHash creates a new interior node with a cached hash.
@@ -59,15 +60,26 @@ func (i *InteriorNode) CalculateAllHashes() {
 // GetHash is the implementation of Node.GetHash
 func (i *InteriorNode) GetHash() []byte {
 	if i.recalculateHash {
-		payload := make([]byte, 0)
+		var leftHash []byte
+		var rightHash []byte
+		var wg sync.WaitGroup
 		if i.leftChild != nil {
-			payload = append(payload, i.leftChild.GetHash()...)
+			wg.Add(1)
+			go func() {
+				leftHash = i.leftChild.GetHash()
+				wg.Done()
+			}()
 		}
 		if i.rightChild != nil {
-			payload = append(payload, i.rightChild.GetHash()...)
+			wg.Add(1)
+			go func() {
+				rightHash = i.rightChild.GetHash()
+				wg.Done()
+			}()
 		}
-		hash := fastsha256.Sum256(payload)
-		i.hash = make([]byte, len(hash))
+		wg.Wait()
+
+		hash := fastsha256.Sum256(append(leftHash, rightHash...))
 		copy(i.hash, hash[:])
 		i.recalculateHash = false
 	}
@@ -321,4 +333,24 @@ func (i *InteriorNode) WriteGraphNodes(w io.Writer) {
 		w.Write([]byte(fmt.Sprintf("\"%x\" -> \"%x\";\n", i.GetGraphHash(), i.rightChild.GetGraphHash())))
 	}
 
+}
+
+func (i *InteriorNode) DeepCopy() (Node, error) {
+	var left, right Node
+	var err error
+
+	if i.leftChild != nil {
+		left, err = i.leftChild.DeepCopy()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if i.rightChild != nil {
+		right, err = i.rightChild.DeepCopy()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return NewInteriorNodeWithCachedHash(left, right, i.hash)
 }

@@ -43,7 +43,11 @@ func (dln *DictionaryLeafNode) Dispose() {
 
 // NewDictionaryLeafNode creates a new dictionary leaf node with already calculated hash
 func NewDictionaryLeafNodeCachedHash(key, value, hash []byte) (*DictionaryLeafNode, error) {
-	return &DictionaryLeafNode{key: key, value: value, changed: true, recalculateHash: false, commitmentHash: hash}, nil
+	node := &DictionaryLeafNode{key: make([]byte, len(key)), value: make([]byte, len(value)), commitmentHash: make([]byte, 32), changed: true, recalculateHash: false}
+	copy(node.key, key)
+	copy(node.value, value)
+	copy(node.commitmentHash, hash)
+	return node, nil
 }
 
 // GetHash is the implementation of Node.GetHash
@@ -225,4 +229,8 @@ func (dln *DictionaryLeafNode) ByteSize() int {
 
 func (dln *DictionaryLeafNode) WriteGraphNodes(w io.Writer) {
 	w.Write([]byte(fmt.Sprintf("\"%x\" [\n\tshape=box\n\tstyle=\"filled,solid\"\n\tfontcolor=blue\n\tcolor=blue\n\tfillcolor=lightblue];\n", dln.GetGraphHash())))
+}
+
+func (dln *DictionaryLeafNode) DeepCopy() (Node, error) {
+	return NewDictionaryLeafNodeCachedHash(dln.key, dln.value, dln.commitmentHash)
 }

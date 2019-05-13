@@ -4,7 +4,6 @@ import (
 	"flag"
 
 	"github.com/mit-dci/go-bverify/cmd/bench/benchmarks"
-	"github.com/mit-dci/go-bverify/logging"
 	"github.com/pkg/profile"
 )
 
@@ -24,8 +23,6 @@ func main() {
 	clientBenchLogs := flag.Int("clientbenchlogs", 1000, "Number of logs to write per client")
 	clientBenchStatements := flag.Int("clientbenchstatements", 100, "Number of statements to write to each log")
 	profileMemory := flag.Bool("profile", false, "Profile memory usage")
-
-	logging.SetLogLevel(int(logging.LogLevelDebug))
 
 	flag.Parse()
 

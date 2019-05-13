@@ -147,11 +147,11 @@ func (dm *DeltaMPT) Bytes() []byte {
 }
 
 func (dm *DeltaMPT) Copy() (*DeltaMPT, error) {
-	r, w := io.Pipe()
-	go func() {
-		dm.Serialize(w)
-	}()
-	return DeserializeNewDeltaMPT(r)
+	copiedRoot, err := dm.root.DeepCopy()
+	if err != nil {
+		return nil, err
+	}
+	return &DeltaMPT{root: copiedRoot.(*InteriorNode)}, nil
 }
 
 // NewDeltaMPTFromBytes parses a byte slice into a Delta MPT

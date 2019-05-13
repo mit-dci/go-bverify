@@ -289,12 +289,11 @@ func DeserializeNewFullMPT(r io.Reader) (*FullMPT, error) {
 }
 
 func (fm *FullMPT) Copy() (*FullMPT, error) {
-	r, w := io.Pipe()
-	go func() {
-		fm.Serialize(w)
-	}()
-
-	return DeserializeNewFullMPT(r)
+	copiedRoot, err := fm.root.DeepCopy()
+	if err != nil {
+		return nil, err
+	}
+	return newFullMPTWithRoot(copiedRoot.(*InteriorNode)), nil
 }
 
 func (fm *FullMPT) Graph() []byte {
