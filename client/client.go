@@ -202,7 +202,7 @@ func (c *Client) ReceiveLoop() {
 		if t == wire.MessageTypeAck {
 			select {
 			case c.ack <- true:
-			default:
+			case <-time.After(time.Millisecond * 300):
 				logging.Warn("Received ACK when no one was listening for it")
 			}
 			continue
