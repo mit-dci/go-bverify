@@ -60,7 +60,7 @@ func RunMicroBench() {
 		wg.Add(1)
 		go func() {
 			for i := range createLogs {
-				if i%10000 == 0 {
+				if i%100000 == 0 {
 					fmt.Printf("\rMicrobench: Creating logs [%d/%d]      ", i+1, MICROBENCH_TOTALLOGS)
 				}
 				client := clients[i%MICROBENCH_NUMCLIENTS]
@@ -91,6 +91,9 @@ func RunMicroBench() {
 	}
 	mathrand.Seed(time.Now().UnixNano())
 	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
+
+	numHashes := float64(0)
+	totalNodes := 0
 
 	// Now we're ready to run the first benchmark, that benchmarks signature verification, MPT update and commitment
 	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
@@ -128,6 +131,12 @@ func RunMicroBench() {
 			}
 		}
 
+		if iRun == 0 {
+			totalNodes = srv.CountNodes()
+		}
+
+		numHashes += float64(srv.CountRecalculations())
+
 		start := time.Now()
 		srv.Commitment()
 		runTimesCommit[iRun] = float64(time.Since(start).Nanoseconds())
@@ -136,6 +145,8 @@ func RunMicroBench() {
 		// want to benchmark the commitment itself.
 		srv.Commit()
 	}
+
+	avgHashes := int32(numHashes / float64(MICROBENCH_RUNS))
 
 	// Print raw values
 
@@ -237,6 +248,9 @@ func RunMicroBench() {
 	for _, m := range runTimesFullProof {
 		table.Write([]byte(fmt.Sprintf("%f\n", m)))
 	}
+
+	table.Write([]byte(fmt.Sprintf("\n\nTotal nodes: %d - Avg update hashes:%d\n----\n", totalNodes, avgHashes)))
+
 	table.Close()
 	fmt.Printf("\rMicrobench: Done.                                  \n")
 
