@@ -77,21 +77,38 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 }
 
 // WriteMessagePrefix writes a message prefix to the transport of the given type t and length l
-func (c *Connection) WriteMessagePrefix(t MessageType, l int) error {
-	c.writeLock.Lock()
+func (c *Connection) writeMessagePrefix(t MessageType, l int) error {
+
 	bMsg := make([]byte, 5)
 	bMsg[0] = byte(t)
 	binary.BigEndian.PutUint32(bMsg[1:], uint32(l))
 	n, err := c.conn.Write(bMsg)
 	if err != nil {
-		c.writeLock.Unlock()
 		return err
 	}
 	if n != 5 {
-		c.writeLock.Unlock()
 		return fmt.Errorf("Not all bytes written. Expected 5, got %d", n)
 	}
 
+	return nil
+}
+
+func (c *Connection) WriteMessageToStream(t MessageType, l int, write func(io.Writer) (int, error)) error {
+	c.writeLock.Lock()
+	err := c.writeMessagePrefix(t, l)
+	if err != nil {
+		c.writeLock.Unlock()
+		return err
+	}
+	n, err := write(c.conn)
+	if err != nil {
+		c.writeLock.Unlock()
+		return err
+	}
+	if n != l {
+		c.writeLock.Unlock()
+		return fmt.Errorf("Not all bytes written. Expected %d, got %d", l, n)
+	}
 	c.writeLock.Unlock()
 	return nil
 }
@@ -99,9 +116,12 @@ func (c *Connection) WriteMessagePrefix(t MessageType, l int) error {
 // WriteMessage writes a message to the transport of the given type t and payload m
 // it uses a  Mutex to prevent two threads writing at the same time.
 func (c *Connection) WriteMessage(t MessageType, m []byte) error {
-	c.WriteMessagePrefix(t, len(m))
-
 	c.writeLock.Lock()
+	err := c.writeMessagePrefix(t, len(m))
+	if err != nil {
+		c.writeLock.Unlock()
+		return err
+	}
 	n, err := c.conn.Write(m)
 	if err != nil {
 		c.writeLock.Unlock()

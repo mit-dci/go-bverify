@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
@@ -153,8 +154,10 @@ func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage)
 	if err != nil {
 		return err
 	}
-	lp.conn.WriteMessagePrefix(wire.MessageTypeProof, proof.ByteSize())
-	proof.Serialize(lp.conn)
+	lp.conn.WriteMessageToStream(wire.MessageTypeProof, proof.ByteSize(), func(w io.Writer) (int, error) {
+		proof.Serialize(w)
+		return proof.ByteSize(), nil
+	})
 	return nil
 
 }
