@@ -107,9 +107,9 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 		pubKey:        pk,
 		commitDetails: make(chan *wire.Commitment),
 		commitHistory: make(chan []*wire.Commitment),
-		proof:         make(chan *mpt.PartialMPT),
-		ack:           make(chan bool),
-		errChan:       make(chan error),
+		proof:         make(chan *mpt.PartialMPT, 1),
+		ack:           make(chan bool, 1),
+		errChan:       make(chan error, 1),
 		fullClient:    false,
 	}
 
@@ -202,8 +202,7 @@ func (c *Client) ReceiveLoop() {
 		if t == wire.MessageTypeAck {
 			select {
 			case c.ack <- true:
-			case <-time.After(time.Millisecond * 300):
-				logging.Warn("Received ACK when no one was listening for it")
+			default:
 			}
 			continue
 		}
@@ -245,6 +244,7 @@ func (c *Client) ReceiveLoop() {
 			buf := bytes.NewBuffer(p)
 			mpt, err := mpt.DeserializeNewPartialMPT(buf)
 			if err != nil {
+				logging.Debugf("Error while receiving proof: [%x] %s", p, err.Error())
 				// Something wrong parsing the returned MPT data. Close the connection
 				// and exit the loop.
 				c.conn.Close()
@@ -663,7 +663,6 @@ func (c *Client) SubscribeProofUpdates() error {
 	if err != nil {
 		return err
 	}
-
 	// Wait for ack
 	select {
 	case <-c.ack:

@@ -10,6 +10,7 @@ import (
 
 	"github.com/mit-dci/go-bverify/wire"
 
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -97,7 +98,7 @@ func RunServerBench(port int) {
 		}
 	}()
 
-	fmt.Printf("\nStarting server benchmark. Press ^C to end the benchmark and produce results.\n\nServer benchmark: Server is listening for requests. ")
+	logging.Debugf("Starting server benchmark. Press ^C to end the benchmark and produce results.\n\nServer benchmark: Server is listening for requests. ")
 
 	for {
 		breakOut := false
@@ -119,7 +120,7 @@ func RunServerBench(port int) {
 
 	operationNames := []string{"Create new log", "Add log statement", "", "", "", "Request Full Proof", "", "", "", "", "", ""}
 
-	fmt.Printf("\nServer benchmark: Writing output                                 ")
+	logging.Debugf("Server benchmark: Writing output                                 ")
 
 	table, _ := os.Create("table_serversimulation.tex")
 	table.Write([]byte("\\begin{table*}[t]\n"))
@@ -146,5 +147,5 @@ func RunServerBench(port int) {
 	table.Write([]byte("\\end{table*}	\n"))
 	table.Close()
 
-	fmt.Printf("\r Server bench : completed                                  \n")
+	logging.Debugf("Server bench : completed                                  ")
 }

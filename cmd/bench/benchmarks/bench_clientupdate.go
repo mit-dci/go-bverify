@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mit-dci/go-bverify/client"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/mpt"
 	"github.com/mit-dci/go-bverify/server"
 )
@@ -62,7 +63,7 @@ func RunClientUpdateBench() {
 
 	results := make([]clientUpdateBenchResultCollection, len(runUpdateSizes))
 	for i, rus := range runUpdateSizes {
-		fmt.Printf("Running client update bench for %d updating logs...\n", rus)
+		logging.Debugf("Running client update bench for %d updating logs...", rus)
 		results[i] = clientUpdateBenchResultCollection{numberOfChangingLogs: rus, result: runClientUpdateBench(CLIENTUPDATE_TOTALLOGS, rus, trackingLogSizes)}
 	}
 
@@ -224,12 +225,12 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 
 	// Create dummy logs, which returns the logIDs
 	logIds := makeDummyLogs(srv, dummyLogs)
-	fmt.Printf("\nDummy logs created, committing the tree...")
+	logging.Debugf("Dummy logs created, committing the tree...")
 	err = srv.Commit()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("\nCommit done.\n")
+	logging.Debugf("Commit done.")
 	results := make([]clientUpdateBenchResult, len(proofLogs))
 	updates := make([]int64, len(proofLogs))
 	updateSizes := make([]int64, len(proofLogs))
@@ -237,14 +238,14 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	partialMpts := make([]*mpt.PartialMPT, len(proofLogs))
 	partialMptLocks := make([]sync.Mutex, len(proofLogs))
 
+	var wgProofUpdates sync.WaitGroup
+
 	var wg sync.WaitGroup
 	wg.Add(runtime.NumCPU())
 	for iThreads := 0; iThreads < runtime.NumCPU(); iThreads++ {
 		go func(ith int) {
-			fmt.Printf("\nOpened channel %d proofUpdatesChan\n", ith)
-
 			for pu := range proofUpdatesChan {
-				fmt.Printf("\nReceived update on channel %d proofUpdatesChan\n", ith)
+
 				clientIdx := -1
 				for i := 0; i < len(clients); i++ {
 					if clients[i] == pu.forClient {
@@ -253,12 +254,11 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 					}
 				}
 				if clientIdx == -1 {
+					logging.Warn("Could not determine client for proof update, skipping")
 					continue
 				}
 
 				partialMptLocks[clientIdx].Lock()
-
-				fmt.Printf("Acquired lock on partialMPT in %d proofUpdatesChan\n", ith)
 
 				if partialMpts[clientIdx] == nil {
 					// If we don't have a partial MPT for this client, then we
@@ -266,11 +266,11 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 					// it will not include the state of the tree prior to us joining
 					// the log. So we need to fetch the PartialMPT first
 
-					fmt.Printf("Retrieving partialMPT in %d proofUpdatesChan\n", ith)
 					partialMpts[clientIdx], err = clients[clientIdx].RequestProof([][32]byte{})
-					fmt.Printf("Retrieved partialMPT in %d proofUpdatesChan\n", ith)
 					if err != nil {
-						fmt.Printf("Error while fetching initial proof: %s\n", err.Error())
+						logging.Debugf("Error while fetching initial proof: %s", err.Error())
+						partialMptLocks[clientIdx].Unlock()
+						continue
 					}
 				}
 
@@ -278,19 +278,15 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 
 				start := time.Now()
 				buf := bytes.NewBuffer(pu.proofUpdate)
-				fmt.Printf("Processing updates to partialMPT in %d proofUpdatesChan\n", ith)
 				partialMpts[clientIdx].ProcessUpdatesFromReader(buf)
 				atomic.AddInt64(&(updateTimes[clientIdx]), time.Since(start).Nanoseconds())
-				fmt.Printf("Freeing lock on partialMPT in %d proofUpdatesChan\n", ith)
 				partialMptLocks[clientIdx].Unlock()
-				fmt.Printf("Freed lock on partialMPT in %d proofUpdatesChan\n", ith)
 
 				atomic.AddInt64(&(updates[clientIdx]), 1)
 				atomic.AddInt64(&updateSizes[clientIdx], int64(len(pu.proofUpdate)))
-				fmt.Printf("\nFinished update on channel %d proofUpdatesChan\n", ith)
-			}
 
-			fmt.Printf("\nClosed channel %d proofUpdatesChan\n", ith)
+				wgProofUpdates.Done()
+			}
 
 			for i, pl := range proofLogs {
 				updateSizeKB := float64(updateSizes[i]) / float64(updates[i]) / float64(1000)
@@ -298,8 +294,6 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 
 				results[i] = clientUpdateBenchResult{trackingLogCount: pl, averageUpdateSizeKB: updateSizeKB, averageUpdateTimeMS: updateTimeMS}
 			}
-
-			fmt.Printf("Calling wg.Done() on %d\n", ith)
 
 			wg.Done()
 		}(iThreads)
@@ -310,10 +304,10 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	}
 
 	onError := func(err error, client *client.Client) {
-		fmt.Printf("Error occured: %s", err.Error())
+		logging.Debugf("Error occured: %s", err.Error())
 	}
 
-	fmt.Printf("Creating clients..\n")
+	logging.Debugf("Creating clients..")
 
 	for i := 0; i < len(proofLogs); i++ {
 		keys[i] = [32]byte{}
@@ -321,10 +315,13 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		clients[i], _ = client.NewClientWithConnection(keys[i][:], newDummyClient(srv))
 		clients[i].OnProofUpdate = onProofUpdate
 		clients[i].OnError = onError
-		clients[i].SubscribeProofUpdates()
+		err := clients[i].SubscribeProofUpdates()
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	fmt.Printf("Creating logs for each client...\n")
+	logging.Debugf("Creating logs for each client...")
 
 	for i, pl := range proofLogs {
 		clientLogIds[i] = make([][32]byte, pl)
@@ -335,7 +332,7 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 		}
 	}
 
-	fmt.Printf("Shuffling dummy logs...\n")
+	logging.Debugf("Shuffling dummy logs...")
 
 	logIdIdx := make([]uint64, dummyLogs)
 	logIdxsToChange := make([]int, dummyLogs)
@@ -366,16 +363,18 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 				panic(err)
 			}
 		}
-		fmt.Printf("\r[%d/%d] Committing server [%d]                    ", i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
+		logging.Debugf("[%d/%d] Committing server [%d]", i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
+		wgProofUpdates.Add(len(proofLogs))
 		err := srv.Commit()
 		if err != nil {
 			panic(err)
 		}
+		wgProofUpdates.Wait()
 	}
 
 	close(proofUpdatesChan)
 	wg.Wait()
-	fmt.Printf("\nDone\n")
+	logging.Debugf("Done")
 
 	return results
 }

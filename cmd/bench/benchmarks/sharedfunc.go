@@ -1,12 +1,12 @@
 package benchmarks
 
 import (
-	"fmt"
 	"math/rand"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -60,9 +60,8 @@ func makeDummyLogs(srv *server.Server, numLogs int) []byte {
 	}
 	wg.Add(1)
 	go func() {
-		fmt.Printf("\n")
 		for {
-			fmt.Printf("\rCreated %d/%d dummy logs", numLogs-len(c), numLogs)
+			logging.Debugf("Created %d/%d dummy logs", numLogs-len(c), numLogs)
 			if len(c) == 0 {
 				wg.Done()
 				break

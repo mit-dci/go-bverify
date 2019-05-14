@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -69,8 +70,6 @@ func RunProofSizeBench() {
 				logId := [32]byte{}
 				rand.Read(logId[:])
 				rand.Read(witness[:])
-
-				//fmt.Printf("Registering Log [%x] with witness [%x]\n", logId, witness)
 
 				// Create the log and write the first statement
 				srv.RegisterLogID(logId, pub33)
@@ -140,7 +139,7 @@ func RunProofSizeBench() {
 	}
 
 	for runIdx := 0; runIdx < runCount; runIdx++ {
-		fmt.Printf("\rProof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
+		logging.Debugf("Proof Size Run [%d/%d] (%.2f %%) - Tree size: %d bytes", runIdx+1, runCount, float64(runIdx+1)/float64(runCount)*float64(100), srv.TreeSize())
 
 		logCreateWaitGroup = sync.WaitGroup{}
 		for logIdx := runIdx * PROOFSIZE_INCREMENTS; logIdx < (runIdx+1)*PROOFSIZE_INCREMENTS; logIdx++ {

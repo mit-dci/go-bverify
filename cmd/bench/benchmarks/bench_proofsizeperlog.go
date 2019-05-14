@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -21,7 +22,7 @@ const (
 // PROOFSIZEPERLOG_INCREMENTS up to PROOFSIZEPERLOG_MAXLOGCOUNT
 // logs in total (in steps of PROOFSIZEPERLOG_INCREMENTS)
 func RunProofSizePerLogBench() {
-	fmt.Printf("Running proof size per log benchmark\n")
+	logging.Debugf("Running proof size per log benchmark")
 	srv, err := server.NewServer("", 0)
 	if err != nil {
 		panic(err)
@@ -39,7 +40,7 @@ func RunProofSizePerLogBench() {
 	// Store the log IDs into one big byteslice
 	logIds := makeDummyLogs(srv, PROOFSIZEPERLOG_TOTALLOGS)
 
-	fmt.Printf("\nRunning proof size per log benchmark: [Committing the log]                  ")
+	logging.Debugf("Running proof size per log benchmark: [Committing the log]                  ")
 
 	// Now make the server commit the tree
 	err = srv.Commit()
@@ -47,7 +48,7 @@ func RunProofSizePerLogBench() {
 		panic(err)
 	}
 
-	fmt.Printf("\rRunning proof size per log benchmark: [Committed the log, generating proofs]                  ")
+	logging.Debugf("Running proof size per log benchmark: [Committed the log, generating proofs]                  ")
 
 	loops := PROOFSIZEPERLOG_MAXLOGCOUNT / PROOFSIZEPERLOG_INCREMENTS
 
@@ -56,7 +57,7 @@ func RunProofSizePerLogBench() {
 	var receivedProofs, receivedProofSizes int64
 
 	for idx := 0; idx < loops; idx++ {
-		fmt.Printf("\rRunning proof size per log benchmark: [Generating proofs %d / %d]                  ", idx, loops)
+		logging.Debugf("Running proof size per log benchmark: [Generating proofs %d / %d]                  ", idx, loops)
 
 		pl := ((idx + 1) * PROOFSIZEPERLOG_INCREMENTS)
 		logIdSets := make([][][]byte, PROOFSIZEPERLOG_SAMPLELIMIT)

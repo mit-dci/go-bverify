@@ -63,6 +63,7 @@ func copyMultiplePaths(matchingKeys [][]byte, copyNode Node, currentBitIndex int
 		if copyNode.IsEmpty() {
 			return NewEmptyLeafNode()
 		}
+
 		return NewStub(copyNode.GetHash())
 	}
 
@@ -183,10 +184,10 @@ func (pm *PartialMPT) Serialize(w io.Writer) {
 }
 
 func (pm *PartialMPT) Bytes() []byte {
-	b := make([]byte, pm.ByteSize())
+	b := make([]byte, 0, pm.ByteSize())
 	buf := bytes.NewBuffer(b)
 	pm.Serialize(buf)
-	return b
+	return buf.Bytes()
 }
 
 // NewPartialMPTFromBytes parses a byte slice into a Partial MPT

@@ -2,9 +2,12 @@ package main
 
 import (
 	"flag"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/mit-dci/go-bverify/cmd/bench/benchmarks"
-	"github.com/pkg/profile"
+	"github.com/mit-dci/go-bverify/logging"
 )
 
 func main() {
@@ -26,8 +29,13 @@ func main() {
 
 	flag.Parse()
 
+	logging.SetLogLevel(int(logging.LogLevelDebug))
+
 	if *profileMemory {
-		defer profile.Start(profile.MemProfileRate(512 * 1024)).Stop()
+		go func() {
+			log.Println("Profiling!")
+			log.Println(http.ListenAndServe(":6060", nil))
+		}()
 	}
 
 	if *runProofSize || *runAll {

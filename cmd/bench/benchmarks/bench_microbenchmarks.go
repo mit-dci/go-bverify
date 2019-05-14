@@ -12,6 +12,7 @@ import (
 	"github.com/mit-dci/go-bverify/client"
 
 	"github.com/gonum/stat"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -36,7 +37,7 @@ func RunMicroBench() {
 	processors := make([]server.LogProcessor, MICROBENCH_NUMCLIENTS)
 	keys := make([][32]byte, MICROBENCH_NUMCLIENTS)
 
-	fmt.Printf("\nMicrobench: Creating clients       ")
+	logging.Debugf("Microbench: Creating clients       ")
 
 	// Create the clients
 	for i := 0; i < MICROBENCH_NUMCLIENTS; i++ {
@@ -61,7 +62,7 @@ func RunMicroBench() {
 		go func() {
 			for i := range createLogs {
 				if i%100000 == 0 {
-					fmt.Printf("\rMicrobench: Creating logs [%d/%d]      ", i+1, MICROBENCH_TOTALLOGS)
+					logging.Debugf("Microbench: Creating logs [%d/%d]", i+1, MICROBENCH_TOTALLOGS)
 				}
 				client := clients[i%MICROBENCH_NUMCLIENTS]
 				logId, err := client.StartLog([]byte(fmt.Sprintf("Hello world %d", i)))
@@ -81,7 +82,7 @@ func RunMicroBench() {
 	runTimesMPTUpdate := make([]float64, MICROBENCH_UPDATELOGS)
 	runTimesCommit := make([]float64, MICROBENCH_RUNS)
 
-	fmt.Printf("\rMicrobench: Shuffling log IDs       ")
+	logging.Debugf("Microbench: Shuffling log IDs       ")
 
 	logIdIdx := make([]uint64, MICROBENCH_TOTALLOGS)
 	logIdxsToChange := make([]int, MICROBENCH_TOTALLOGS)
@@ -97,7 +98,7 @@ func RunMicroBench() {
 
 	// Now we're ready to run the first benchmark, that benchmarks signature verification, MPT update and commitment
 	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
-		fmt.Printf("\rMicrobench: Running benchmark 1/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
+		logging.Debugf("Microbench: Running benchmark 1/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 
 		startIdx := mathrand.Intn(MICROBENCH_TOTALLOGS - MICROBENCH_UPDATELOGS)
 		subset := logIdxsToChange[startIdx : startIdx+MICROBENCH_UPDATELOGS]
@@ -163,7 +164,7 @@ func RunMicroBench() {
 		rand.Read(statement)
 		randLogId := mathrand.Intn(MICROBENCH_TOTALLOGS)
 
-		fmt.Printf("\rMicrobench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
+		logging.Debugf("Microbench: Running benchmark 2/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
 		for j := 0; j < MICROBENCH_UPDATELOGS; j++ {
 			logIdIdx[subset[j]]++
@@ -187,7 +188,7 @@ func RunMicroBench() {
 		rand.Read(statement)
 		randLogId := mathrand.Intn(MICROBENCH_TOTALLOGS)
 
-		fmt.Printf("\rMicrobench: Running benchmark 3/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
+		logging.Debugf("Microbench: Running benchmark 3/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 		var logId [32]byte
 		for j := 0; j < MICROBENCH_UPDATELOGS*10; j++ {
 			logIdIdx[subset[j]]++
@@ -201,7 +202,7 @@ func RunMicroBench() {
 		runTimesFullProof[iRun] = float64(time.Since(start).Nanoseconds())
 	}
 
-	fmt.Printf("\rMicrobench: Writing output                ")
+	logging.Debugf("Microbench: Writing output                ")
 
 	table, _ := os.Create("table_microbench.tex")
 	table.Write([]byte("\\begin{table*}[t]\n"))
@@ -252,7 +253,7 @@ func RunMicroBench() {
 	table.Write([]byte(fmt.Sprintf("\n\nTotal nodes: %d - Avg update hashes:%d\n----\n", totalNodes, avgHashes)))
 
 	table.Close()
-	fmt.Printf("\rMicrobench: Done.                                  \n")
+	logging.Debugf("Microbench: Done.                                  \n")
 
 }
 

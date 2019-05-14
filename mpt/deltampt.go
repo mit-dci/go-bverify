@@ -140,7 +140,7 @@ func (dm *DeltaMPT) Serialize(w io.Writer) {
 }
 
 func (dm *DeltaMPT) Bytes() []byte {
-	b := make([]byte, dm.ByteSize())
+	b := make([]byte, 0, dm.ByteSize())
 	buf := bytes.NewBuffer(b)
 	dm.Serialize(buf)
 	return b

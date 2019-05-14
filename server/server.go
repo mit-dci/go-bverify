@@ -683,11 +683,6 @@ func (srv *Server) Commit() error {
 		// change something in the tree to force a commitment next time around
 		nextIdx := srv.GetNextLogIndex([32]byte{})
 		srv.RegisterLogStatement([32]byte{}, nextIdx, commitment)
-	} else {
-		if srv.LastConfirmedCommitMpt != nil {
-			srv.LastConfirmedCommitMpt.Dispose()
-		}
-		srv.LastConfirmedCommitMpt = srv.LastCommitMpt
 	}
 	commitment = nil
 	return nil
@@ -746,10 +741,17 @@ func (srv *Server) loadState() error {
 }
 
 func (srv *Server) GetProofForKeys(keys [][]byte) (*mpt.PartialMPT, error) {
-	if srv.LastConfirmedCommitMpt == nil {
-		return nil, fmt.Errorf("There has not yet been a confirmed commitment, please try again later")
+	if srv.Full {
+		if srv.LastConfirmedCommitMpt == nil {
+			return nil, fmt.Errorf("There has not yet been a confirmed commitment, please try again later")
+		}
+		return mpt.NewPartialMPTIncludingKeys(srv.LastConfirmedCommitMpt, keys)
+	} else {
+		if srv.LastCommitMpt == nil {
+			return nil, fmt.Errorf("There has not yet been a confirmed commitment, please try again later")
+		}
+		return mpt.NewPartialMPTIncludingKeys(srv.LastCommitMpt, keys)
 	}
-	return mpt.NewPartialMPTIncludingKeys(srv.LastConfirmedCommitMpt, keys)
 }
 
 func (srv *Server) GetDeltaProofForKeys(keys [][]byte) (*mpt.DeltaMPT, error) {

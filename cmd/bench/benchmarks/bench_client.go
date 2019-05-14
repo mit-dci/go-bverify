@@ -12,6 +12,7 @@ import (
 
 	"github.com/mit-dci/go-bverify/client"
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/wire"
 )
 
@@ -100,7 +101,7 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 		cli[i] = &TestClient{cli: cl, logIDs: make([][32]byte, numLogs)}
 	}
 
-	fmt.Printf("\nCreated %d clients. Starting their logs", numClients)
+	logging.Debugf("Created %d clients. Starting their logs", numClients)
 
 	var wg sync.WaitGroup
 	for _, c := range cli {
@@ -115,7 +116,7 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 	}
 	wg.Wait()
 
-	fmt.Printf("\nStarted %d logs. Adding %d statements per log", numClients*numLogs, numStatements)
+	logging.Debugf("Started %d logs. Adding %d statements per log", numClients*numLogs, numStatements)
 	for i := uint64(1); i < uint64(numStatements); i++ {
 		for _, c := range cli {
 			wg.Add(1)
@@ -133,11 +134,11 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 		wg.Wait()
 	}
 
-	fmt.Printf("\nAdded all statements, waiting for the server to commit")
+	logging.Debugf("Added all statements, waiting for the server to commit")
 
 	time.Sleep(time.Second * 15) // Wait for the server to process the commitments
 
-	fmt.Printf("\nRequesting proofs")
+	logging.Debugf("Requesting proofs")
 	for _, c := range cli {
 		wg.Add(1)
 		go func(c *TestClient) {
@@ -149,11 +150,11 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 		}(c)
 	}
 	wg.Wait()
-	fmt.Printf("Done!")
+	logging.Debugf("Server committed")
 
 	operationNames := []string{"Create new log", "Add log statement", "", "", "", "Request Full Proof", "", "", "", "", "", ""}
 
-	fmt.Printf("\nServer benchmark: Writing output                                 ")
+	logging.Debugf("Writing output")
 
 	table, _ := os.Create("table_clientsimulation.tex")
 	table.Write([]byte("\\begin{table*}[t]\n"))
@@ -180,5 +181,5 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 	table.Write([]byte("\\end{table*}	\n"))
 	table.Close()
 
-	fmt.Printf("\r Server bench : completed                                  \n")
+	logging.Debugf("Completed")
 }

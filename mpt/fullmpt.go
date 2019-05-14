@@ -261,7 +261,7 @@ func (fm *FullMPT) ByteSize() int {
 }
 
 func (fm *FullMPT) Bytes() []byte {
-	b := make([]byte, fm.ByteSize())
+	b := make([]byte, 0, fm.ByteSize())
 	buf := bytes.NewBuffer(b)
 	fm.Serialize(buf)
 	return b

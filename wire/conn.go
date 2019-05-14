@@ -26,18 +26,6 @@ func (c *Connection) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Connection) Write(p []byte) (n int, err error) {
-	c.writeLock.Lock()
-	n, err = c.conn.Write(p)
-	c.writeLock.Unlock()
-	return
-}
-
-func (c *Connection) Read(p []byte) (n int, err error) {
-	n, err = c.conn.Read(p)
-	return
-}
-
 // ReadNextMessage reads a type, length and then payload from the transport and
 // returns the message type and payload to the caller.
 func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
@@ -60,6 +48,7 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	}
 
 	l := binary.BigEndian.Uint32(bLen)
+
 	bMsg := make([]byte, l)
 	if l > 0 {
 		n, err = io.ReadFull(c.conn, bMsg)
@@ -71,7 +60,6 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 		}
 
 	}
-	//fmt.Printf("< [%x%x%x]\n", bType, bLen, bMsg)
 
 	return MessageType(bType[0]), bMsg, nil
 }

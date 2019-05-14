@@ -50,6 +50,8 @@ func (i *InteriorNode) Dispose() {
 	i.changed = false
 	i.leftChild.Dispose()
 	i.rightChild.Dispose()
+	i.leftChild = nil
+	i.rightChild = nil
 	i = nil
 }
 

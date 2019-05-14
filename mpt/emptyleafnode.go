@@ -26,7 +26,7 @@ func NewEmptyLeafNode() (*EmptyLeafNode, error) {
 }
 
 func (eln *EmptyLeafNode) Dispose() {
-	eln = nil
+
 }
 
 // GetHash is the implementation of Node.GetHash

@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/mpt"
 	"github.com/mit-dci/go-bverify/wire"
 )
@@ -46,6 +47,7 @@ func (lp *ServerLogProcessor) Process() {
 
 		e = lp.ProcessMessage(t, m)
 		if e != nil {
+			logging.Warnf("Error processing message [%x]: %s", m, e.Error())
 			lp.conn.WriteMessage(wire.MessageTypeError, []byte(e.Error()))
 			lp.server.unregisterProcessor(lp)
 			lp.conn.Close()
@@ -61,10 +63,10 @@ func (lp *ServerLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
 			return err
 		}
 
-		err = lp.conn.WriteMessage(wire.MessageTypeProofUpdate, clientDelta.Bytes())
-		if err != nil {
-			return err
-		}
+		return lp.conn.WriteMessageToStream(wire.MessageTypeProofUpdate, clientDelta.ByteSize(), func(w io.Writer) (int, error) {
+			clientDelta.Serialize(w)
+			return clientDelta.ByteSize(), nil
+		})
 	}
 	return nil
 }
@@ -120,12 +122,14 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 
 	if t == wire.MessageTypeSubscribeProofUpdates {
 		lp.autoUpdates = true
+		logging.Debugf("Received subscription to proof updates, sending ACK...")
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
 		return nil
 	}
 
 	if t == wire.MessageTypeUnsubscribeProofUpdates {
 		lp.autoUpdates = false
+		logging.Debugf("Received unsubscription to proof updates, sending ACK...")
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
 		return nil
 	}
@@ -149,17 +153,14 @@ func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage)
 			copy(keys[i], key32[:])
 		}
 	}
-	fmt.Printf("Retrieving proof for %d keys\n", len(keys))
 	proof, err := lp.server.GetProofForKeys(keys)
 	if err != nil {
 		return err
 	}
-	lp.conn.WriteMessageToStream(wire.MessageTypeProof, proof.ByteSize(), func(w io.Writer) (int, error) {
+	return lp.conn.WriteMessageToStream(wire.MessageTypeProof, proof.ByteSize(), func(w io.Writer) (int, error) {
 		proof.Serialize(w)
 		return proof.ByteSize(), nil
 	})
-	return nil
-
 }
 
 func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMessage) error {
@@ -183,8 +184,10 @@ func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMes
 	if err != nil {
 		return err
 	}
-	lp.conn.WriteMessage(wire.MessageTypeDeltaProof, proof.Bytes())
-	return nil
+	return lp.conn.WriteMessageToStream(wire.MessageTypeDeltaProof, proof.ByteSize(), func(w io.Writer) (int, error) {
+		proof.Serialize(w)
+		return proof.ByteSize(), nil
+	})
 }
 
 func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {

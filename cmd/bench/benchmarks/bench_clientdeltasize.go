@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mit-dci/go-bverify/client"
+	"github.com/mit-dci/go-bverify/logging"
 	"github.com/mit-dci/go-bverify/server"
 )
 
@@ -40,7 +41,6 @@ func RunClientDeltaSizeBench() {
 	// Create dummy logs, which returns the logIDs
 	logIds := makeDummyLogs(srv, CLIENTDELTASIZE_TOTALLOGS)
 	srv.Commit()
-	fmt.Printf("\n")
 
 	// Create client
 	key := [32]byte{}
@@ -78,7 +78,7 @@ func RunClientDeltaSizeBench() {
 		updates = 0
 		updateSizes = 0
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
-			fmt.Printf("\rMeasuring delta size with [%d/%d] updates, sample [%d/%d]            ", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES)
+			logging.Debugf("Measuring delta size with [%d/%d] updates, sample [%d/%d]", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES)
 			// pick a changing random subset of logs every run
 			var subset = logIdxsToChange[:]
 			if CLIENTDELTASIZE_TOTALLOGS > numChangeLogs {
@@ -116,5 +116,5 @@ func RunClientDeltaSizeBench() {
 	graph.Write([]byte("\t\\label{graph_clientdeltasize}\n"))
 	graph.Write([]byte("\\end{figure}\n"))
 
-	fmt.Printf("\nDone\n")
+	logging.Debugf("Done")
 }
