@@ -29,6 +29,7 @@ func RunMicroBench() {
 		panic(err)
 	}
 	srv.AutoCommit = false
+	srv.KeepCommitmentTree = false
 
 	// Create all logs first
 	// Store the log IDs into one big byteslice
@@ -124,6 +125,7 @@ func RunMicroBench() {
 			client := clients[subset[j]%MICROBENCH_NUMCLIENTS]
 			processor := processors[subset[j]%MICROBENCH_NUMCLIENTS]
 
+			client.DummySignatures = !(iRun == 0)
 			sls, err := client.SignedAppendLog(logIdIdx[subset[j]], logId, statement)
 			if err != nil {
 				panic(err)
@@ -140,7 +142,7 @@ func RunMicroBench() {
 				processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
 				runTimesMPTUpdate[statsIdx] = float64(time.Since(start).Nanoseconds())
 			} else {
-				processor.(*server.ServerLogProcessor).VerifyAppendLog(sls)
+				// No need to verify in the other runs as that's not what we're benchmarking
 				processor.(*server.ServerLogProcessor).CommitAppendLog(sls)
 			}
 		}
