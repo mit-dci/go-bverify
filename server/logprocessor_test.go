@@ -111,7 +111,8 @@ func TestLogProcessor(t *testing.T) {
 	}
 
 	// Get commitment from the proof update and compare with the one the server committed.
-	partialMpt, _ := mpt.NewPartialMPTFromBytes(m)
+	buf := bytes.NewBuffer(m)
+	partialMpt, _ := mpt.DeserializeNewPartialMPT(buf)
 	comm := partialMpt.Commitment()
 	if !bytes.Equal(srv.lastCommitment[:], comm) {
 		t.Errorf("Proof update contains wrong commitment: [%x], expected [%x]", comm, srv.lastCommitment[:])

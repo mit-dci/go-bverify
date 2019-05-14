@@ -126,7 +126,6 @@ func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error
 
 	if t == wire.MessageTypeSubscribeProofUpdates {
 		lp.autoUpdates = true
-		logging.Debugf("Received subscription to proof updates, sending ACK...")
 		lp.conn.WriteMessage(wire.MessageTypeAck, []byte{})
 		return nil
 	}

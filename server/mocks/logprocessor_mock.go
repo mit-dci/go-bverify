@@ -55,6 +55,12 @@ func (m *MockLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
 	return ret0
 }
 
+// SendProofs mocks base method
+func (m *MockLogProcessor) Stop() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Stop")
+}
+
 // SendProofs indicates an expected call of SendProofs
 func (mr *MockLogProcessorMockRecorder) SendProofs(delta interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
@@ -78,7 +84,7 @@ func (mr *MockLogProcessorMockRecorder) ProcessMessage(t, m interface{}) *gomock
 // ProcessMessage indicates an expected call of ProcessMessage
 func (mr *MockLogProcessorMockRecorder) Stop(t, m interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockLogProcessor)(nil).Stop), t, m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessMessage", reflect.TypeOf((*MockLogProcessor)(nil).ProcessMessage), t, m)
 }
 
 // ProcessRequestProof mocks base method
