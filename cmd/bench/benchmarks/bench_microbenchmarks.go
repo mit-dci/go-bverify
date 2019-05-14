@@ -157,12 +157,9 @@ func RunMicroBench() {
 		numHashes += float64(srv.CountRecalculations())
 
 		start := time.Now()
-		srv.Commitment()
+		srv.Commit()
 		runTimesCommit[iRun] = float64(time.Since(start).Nanoseconds())
 
-		// Commit handles other stuff such as pushing delta updates to connected clients. We only
-		// want to benchmark the commitment itself.
-		srv.Commit()
 	}
 
 	avgHashes = int32(numHashes / float64(MICROBENCH_RUNS))
