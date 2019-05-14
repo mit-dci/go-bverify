@@ -29,7 +29,6 @@ func RunMicroBench() {
 		panic(err)
 	}
 	srv.AutoCommit = false
-	srv.KeepCommitmentTree = false
 
 	// Create all logs first
 	// Store the log IDs into one big byteslice

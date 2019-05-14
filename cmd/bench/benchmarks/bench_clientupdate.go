@@ -18,8 +18,8 @@ import (
 
 const (
 	CLIENTUPDATE_TOTALLOGS            = 10000000
-	CLIENTUPDATE_UPDATESIZE_INCREMENT = 10000
-	CLIENTUPDATE_SAMPLES              = 10
+	CLIENTUPDATE_UPDATESIZE_INCREMENT = 200000
+	CLIENTUPDATE_SAMPLES              = 5
 )
 
 type receivedProofUpdate struct {
@@ -102,8 +102,12 @@ func RunClientUpdateBench() {
 
 	var wgProofUpdates sync.WaitGroup
 
-	for loop := 1; loop < CLIENTUPDATE_TOTALLOGS/CLIENTUPDATE_UPDATESIZE_INCREMENT; loop++ {
-		numChangeLogs := loop * CLIENTUPDATE_UPDATESIZE_INCREMENT
+	numsChangeLogs := []int(10, 100, 1000, 10000, 100000)
+	for i := 200000; i < CLIENTUPDATE_TOTALLOGS; i += CLIENTUPDATE_UPDATESIZE_INCREMENT {
+		numsChangeLogs = append(numsChangeLogs, i)
+	}
+
+	for loop, numChangeLogs := range numsChangeLogs {
 		for i := 0; i < CLIENTUPDATE_SAMPLES; i++ {
 			// pick a changing random subset of logs every run
 			if CLIENTUPDATE_TOTALLOGS > numChangeLogs {
