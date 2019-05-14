@@ -108,7 +108,7 @@ func RunMicroBench() {
 
 	totalNodes := 0
 	runTimesDeltaProof := make([]float64, MICROBENCH_RUNS)
-	avgHashes := 0
+	avgHashes := int32(0)
 
 	// Now we're ready to run the first benchmark, that benchmarks signature verification, MPT update and commitment
 
