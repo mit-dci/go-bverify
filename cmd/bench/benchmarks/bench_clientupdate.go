@@ -376,5 +376,7 @@ func runClientUpdateBench(totalLogs, numChangeLogs int, proofLogs []int) []clien
 	wg.Wait()
 	logging.Debugf("Done")
 
+	srv.Stop()
+
 	return results
 }

@@ -54,6 +54,13 @@ func RunMicroBench() {
 		createLogs <- i
 	}
 
+	// When first filling the tree we don't need to sign/verify. This saves a lot
+	// of time.
+	for i := 0; i < MICROBENCH_NUMCLIENTS; i++ {
+		clients[i].DummySignatures = true
+	}
+	srv.CheckSignatures = false
+
 	close(createLogs)
 
 	var wg sync.WaitGroup
@@ -61,7 +68,7 @@ func RunMicroBench() {
 		wg.Add(1)
 		go func() {
 			for i := range createLogs {
-				if i%100000 == 0 {
+				if i%MICROBENCH_UPDATELOGS == 0 {
 					logging.Debugf("Microbench: Creating logs [%d/%d]", i+1, MICROBENCH_TOTALLOGS)
 				}
 				client := clients[i%MICROBENCH_NUMCLIENTS]
@@ -77,6 +84,12 @@ func RunMicroBench() {
 
 	wg.Wait()
 	srv.Commit()
+
+	// Switch on signature creation and validation
+	srv.CheckSignatures = true
+	for i := 0; i < MICROBENCH_NUMCLIENTS; i++ {
+		clients[i].DummySignatures = false
+	}
 
 	runTimesSigCheck := make([]float64, MICROBENCH_UPDATELOGS)
 	runTimesMPTUpdate := make([]float64, MICROBENCH_UPDATELOGS)

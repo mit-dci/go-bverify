@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +15,7 @@ import (
 // test cases
 type LogProcessor interface {
 	Process()
+	Stop()
 	SendProofs(delta *mpt.DeltaMPT) error
 	ProcessMessage(t wire.MessageType, m []byte) error
 	ProcessRequestProof(msg *wire.RequestProofMessage) error
@@ -25,13 +25,14 @@ type LogProcessor interface {
 
 type ServerLogProcessor struct {
 	conn        *wire.Connection
+	logIDMap    map[[32]byte]struct{}
 	logIDs      [][]byte
 	server      *Server
 	autoUpdates bool
 }
 
 func NewLogProcessor(c net.Conn, srv *Server) LogProcessor {
-	proc := &ServerLogProcessor{conn: wire.NewConnection(c), server: srv, logIDs: make([][]byte, 0)}
+	proc := &ServerLogProcessor{conn: wire.NewConnection(c), server: srv, logIDs: make([][]byte, 0), logIDMap: make(map[[32]byte]struct{})}
 	srv.registerProcessor(proc)
 	return proc
 }
@@ -71,6 +72,9 @@ func (lp *ServerLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
 	return nil
 }
 
+func (lp *ServerLogProcessor) Stop() {
+	lp.conn.Close()
+}
 func (lp *ServerLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error {
 	if t == wire.MessageTypeCreateLog {
 		pm, err := wire.NewSignedCreateLogStatementFromBytes(m)
@@ -168,11 +172,7 @@ func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMes
 	// If we didn't receive any keys as parameter, assume all
 	// logs the client created or modified
 	if len(keys) == 0 {
-		keys = make([][]byte, len(lp.logIDs))
-		for i, key := range lp.logIDs {
-			keys[i] = make([]byte, 32)
-			copy(keys[i], key[:])
-		}
+		keys = lp.logIDs
 	} else {
 		for i, key32 := range msg.LogIDs {
 			keys[i] = make([]byte, 32)
@@ -191,10 +191,13 @@ func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMes
 }
 
 func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {
+	var err error
 
-	err := scls.VerifySignature()
-	if err != nil {
-		return err
+	if lp.server.CheckSignatures {
+		err = scls.VerifySignature()
+		if err != nil {
+			return err
+		}
 	}
 
 	hash := fastsha256.Sum256(scls.CreateStatement.Bytes())
@@ -217,9 +220,13 @@ func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStateme
 }
 
 func (lp *ServerLogProcessor) ProcessAppendLog(sls *wire.SignedLogStatement) error {
-	err := lp.VerifyAppendLog(sls)
-	if err != nil {
-		return err
+	var err error
+
+	if lp.server.CheckSignatures {
+		err = lp.VerifyAppendLog(sls)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = lp.CommitAppendLog(sls)
@@ -257,12 +264,11 @@ func (lp *ServerLogProcessor) AckAppendLog(sls *wire.SignedLogStatement) error {
 }
 
 func (lp *ServerLogProcessor) SubscribeToLog(logID [32]byte) {
-	for _, lid := range lp.logIDs {
-		if bytes.Equal(lid[:], logID[:]) {
-			return
-		}
+	_, ok := lp.logIDMap[logID]
+	if ok {
+		return
 	}
-
+	lp.logIDMap[logID] = struct{}{}
 	lp.logIDs = append(lp.logIDs, logID[:])
 }
 

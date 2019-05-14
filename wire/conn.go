@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	//	"github.com/mit-dci/go-bverify/logging"
 )
 
 // Connection is a wrapper around the raw net.Conn and allows to easily read
@@ -60,6 +61,7 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 		}
 
 	}
+	//logging.Debugf("[%v] <- [%x][%x]", c, bType, bMsg)
 
 	return MessageType(bType[0]), bMsg, nil
 }
@@ -105,6 +107,7 @@ func (c *Connection) WriteMessageToStream(t MessageType, l int, write func(io.Wr
 // it uses a  Mutex to prevent two threads writing at the same time.
 func (c *Connection) WriteMessage(t MessageType, m []byte) error {
 	c.writeLock.Lock()
+	//logging.Debugf("[%v] -> [%x][%x]", c, []byte{byte(t)}, m)
 	err := c.writeMessagePrefix(t, len(m))
 	if err != nil {
 		c.writeLock.Unlock()

@@ -70,6 +70,7 @@ type Server struct {
 	addr string
 
 	// Processing threads
+	allProcessors  []LogProcessor
 	processors     []LogProcessor
 	processorsLock sync.Mutex
 
@@ -112,6 +113,10 @@ type Server struct {
 
 	// Full server also runs an actual Bitcoin wallet and commits to the actual chain
 	Full bool
+
+	// Allow disable signature verification to save needless processing  time when
+	// initializing benchmarks
+	CheckSignatures bool
 }
 
 func NewServer(addr string, rescanBlocks int) (*Server, error) {
@@ -119,6 +124,7 @@ func NewServer(addr string, rescanBlocks int) (*Server, error) {
 
 	srv := new(Server)
 	srv.RescanBlocks = rescanBlocks
+	srv.CheckSignatures = true
 	srv.AutoCommit = true
 	srv.KeepCommitmentTree = true
 	srv.CommitEveryNBlocks = 1 // every hour (well, on bitcoin at least)
@@ -136,7 +142,7 @@ func NewServer(addr string, rescanBlocks int) (*Server, error) {
 	srv.logIDIndexLock = sync.Mutex{}
 
 	srv.lastCommitment = [32]byte{}
-
+	srv.allProcessors = make([]LogProcessor, 0)
 	srv.processors = make([]LogProcessor, 0)
 	srv.processorsLock = sync.Mutex{}
 
@@ -343,6 +349,7 @@ func (srv *Server) Run() error {
 			}
 		}
 		proc := NewLogProcessor(conn, srv)
+		srv.allProcessors = append(srv.allProcessors, proc)
 		go proc.Process()
 	}
 
@@ -600,6 +607,9 @@ func (srv *Server) unregisterProcessor(p LogProcessor) {
 }
 
 func (srv *Server) Stop() {
+	for _, p := range srv.allProcessors {
+		p.Stop()
+	}
 	srv.stop <- true
 	srv.listener.Close()
 }

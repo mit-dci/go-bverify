@@ -85,6 +85,10 @@ type Client struct {
 	// When connecting using NewClient() the address is kept. When there's a failure
 	// the server will disconnect us for, it will automatically reconnect.
 	ReconnectOnFailure bool
+
+	// Don't create actual signatures, just dummy ones - used for initialization during
+	// benchmarks
+	DummySignatures bool
 }
 
 // NewClientWithConnection creates a new b_verify client using the provided
@@ -107,9 +111,9 @@ func NewClientWithConnection(key []byte, c net.Conn) (*Client, error) {
 		pubKey:        pk,
 		commitDetails: make(chan *wire.Commitment),
 		commitHistory: make(chan []*wire.Commitment),
-		proof:         make(chan *mpt.PartialMPT, 1),
-		ack:           make(chan bool, 1),
-		errChan:       make(chan error, 1),
+		proof:         make(chan *mpt.PartialMPT),
+		ack:           make(chan bool),
+		errChan:       make(chan error),
 		fullClient:    false,
 	}
 
@@ -202,7 +206,8 @@ func (c *Client) ReceiveLoop() {
 		if t == wire.MessageTypeAck {
 			select {
 			case c.ack <- true:
-			default:
+			case <-time.After(time.Second * 5):
+				logging.Warnf("[%p] Nobody was waiting for ACK on [%p]", c, c.ack)
 			}
 			continue
 		}
@@ -217,7 +222,8 @@ func (c *Client) ReceiveLoop() {
 			}
 			select {
 			case c.errChan <- err:
-			default:
+			case <-time.After(time.Second * 5):
+				logging.Warnf("Nobody was able to receive error")
 			}
 			c.conn.Close()
 			if c.ReconnectOnFailure {
@@ -433,6 +439,7 @@ func (c *Client) StartLogText(initialStatement string) ([32]byte, error) {
 // with the client's key and then send it to the server. It will wait for the
 // server to have acknowledged the log.
 func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
+	var err error
 
 	// Create the message
 	l := wire.NewSignedCreateLogStatement(c.pubKey, initialStatement)
@@ -442,32 +449,45 @@ func (c *Client) StartLog(initialStatement []byte) ([32]byte, error) {
 
 	// Coincidentally, the logID is the same as the hash we need to sign.
 	// So here we sign that, and add the signature to the outgoing message
-	sig, err := c.key.Sign(logId[:])
-	if err != nil {
-		return [32]byte{}, err
+	if !c.DummySignatures {
+		sig, err := c.key.Sign(logId[:])
+		if err != nil {
+			return [32]byte{}, err
+		}
+		csig, err := sig64.SigCompress(sig.Serialize())
+		if err != nil {
+			return [32]byte{}, err
+		}
+		l.Signature = csig
 	}
-	csig, err := sig64.SigCompress(sig.Serialize())
-	if err != nil {
-		return [32]byte{}, err
-	}
-	l.Signature = csig
 
-	// Send the message to the server
-	err = c.conn.WriteMessage(wire.MessageTypeCreateLog, l.Bytes())
+	result := make(chan error, 1)
+
+	go func() {
+		// Wait for ack
+		select {
+		case <-c.ack:
+			result <- nil
+		case err = <-c.errChan:
+			result <- err
+		case <-time.After(10 * time.Second):
+			result <- fmt.Errorf("Timeout waiting for ACK")
+		}
+	}()
+
+	go func() {
+		// Send the message to the server
+		err = c.conn.WriteMessage(wire.MessageTypeCreateLog, l.Bytes())
+		if err != nil {
+			result <- err
+		}
+	}()
+	err = <-result
 	if err != nil {
 		return [32]byte{}, err
 	}
 
 	serverHash := fastsha256.Sum256(l.Bytes())
-
-	// Wait for ack
-	select {
-	case <-c.ack:
-	case err = <-c.errChan:
-		return [32]byte{}, err
-	case <-time.After(10 * time.Second):
-		return [32]byte{}, fmt.Errorf("Timeout waiting for ACK")
-	}
 
 	// If we're running as a full client, we should store the log
 	if c.fullClient {
@@ -658,42 +678,55 @@ func (c *Client) GetLogCommitment(logId [32]byte, idx uint64) ([32]byte, error) 
 // will then send us a ProofUpdate message automatically, which the client can
 // read out by setting a function pointer to OnProofUpdate
 func (c *Client) SubscribeProofUpdates() error {
+
+	result := make(chan error, 1)
+
+	go func() {
+		// Wait for ack
+		select {
+		case <-c.ack:
+			result <- nil
+		case err := <-c.errChan:
+			result <- err
+		case <-time.After(10 * time.Second):
+			result <- fmt.Errorf("Timeout waiting for ACK")
+		}
+	}()
+
 	// Create the wire message and send it to the server
 	err := c.conn.WriteMessage(wire.MessageTypeSubscribeProofUpdates, []byte{})
 	if err != nil {
 		return err
 	}
-	// Wait for ack
-	select {
-	case <-c.ack:
-	case err = <-c.errChan:
-		return err
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("Timeout waiting for ACK")
-	}
 
-	return nil
+	return <-result
 }
 
 // UnsubscribeProofUpdates will tell the server to stop sending us automatic
 // proof updates. In that case, the proofs will have to be requested manually
 func (c *Client) UnsubscribeProofUpdates() error {
+
+	result := make(chan error, 1)
+
+	go func() {
+		// Wait for ack
+		select {
+		case <-c.ack:
+			result <- nil
+		case err := <-c.errChan:
+			result <- err
+		case <-time.After(10 * time.Second):
+			result <- fmt.Errorf("Timeout waiting for ACK")
+		}
+	}()
+
 	// Create the wire message and send it to the server
 	err := c.conn.WriteMessage(wire.MessageTypeUnsubscribeProofUpdates, []byte{})
 	if err != nil {
 		return err
 	}
 
-	// Wait for ack
-	select {
-	case <-c.ack:
-	case err = <-c.errChan:
-		return err
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("Timeout waiting for ACK")
-	}
-
-	return nil
+	return <-result
 }
 
 // AppendLogText is a convenience function called by the RPC server to append
@@ -881,6 +914,20 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 		return err
 	}
 
+	result := make(chan error, 1)
+
+	go func() {
+		// Wait for ack
+		select {
+		case <-c.ack:
+			result <- nil
+		case err = <-c.errChan:
+			result <- err
+		case <-time.After(10 * time.Second):
+			result <- fmt.Errorf("Timeout waiting for ACK")
+		}
+	}()
+
 	// Calculate the hash the server will write to the log
 	serverHash := fastsha256.Sum256(l.Bytes())
 
@@ -890,13 +937,9 @@ func (c *Client) AppendLog(idx uint64, logId [32]byte, statement []byte) error {
 		return err
 	}
 
-	// Wait for ack
-	select {
-	case <-c.ack:
-	case err = <-c.errChan:
+	err = <-result
+	if err != nil {
 		return err
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("Timeout waiting for ACK")
 	}
 
 	if c.fullClient {
@@ -930,18 +973,20 @@ func (c *Client) SignedAppendLog(idx uint64, logId [32]byte, statement []byte) (
 	// Hash the statement, which is what we'll sign
 	hash := fastsha256.Sum256(l.Statement.Bytes())
 
-	// Sign the hash
-	sig, err := c.key.Sign(hash[:])
-	if err != nil {
-		return nil, err
-	}
-	csig, err := sig64.SigCompress(sig.Serialize())
-	if err != nil {
-		return nil, err
-	}
+	if !c.DummySignatures {
+		// Sign the hash
+		sig, err := c.key.Sign(hash[:])
+		if err != nil {
+			return nil, err
+		}
+		csig, err := sig64.SigCompress(sig.Serialize())
+		if err != nil {
+			return nil, err
+		}
 
-	// Add the signature to the message and return it
-	l.Signature = csig
+		// Add the signature to the message and return it
+		l.Signature = csig
+	}
 	return l, nil
 }
 

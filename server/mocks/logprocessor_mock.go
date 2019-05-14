@@ -5,10 +5,11 @@
 package mocks
 
 import (
+	reflect "reflect"
+
 	gomock "github.com/golang/mock/gomock"
 	mpt "github.com/mit-dci/go-bverify/mpt"
 	wire "github.com/mit-dci/go-bverify/wire"
-	reflect "reflect"
 )
 
 // MockLogProcessor is a mock of LogProcessor interface
@@ -72,6 +73,12 @@ func (m_2 *MockLogProcessor) ProcessMessage(t wire.MessageType, m []byte) error 
 func (mr *MockLogProcessorMockRecorder) ProcessMessage(t, m interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessMessage", reflect.TypeOf((*MockLogProcessor)(nil).ProcessMessage), t, m)
+}
+
+// ProcessMessage indicates an expected call of ProcessMessage
+func (mr *MockLogProcessorMockRecorder) Stop(t, m interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockLogProcessor)(nil).Stop), t, m)
 }
 
 // ProcessRequestProof mocks base method
