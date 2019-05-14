@@ -20,7 +20,7 @@ const (
 	MICROBENCH_TOTALLOGS  = 10000000
 	MICROBENCH_UPDATELOGS = 100000 // 1%
 	MICROBENCH_NUMCLIENTS = 100
-	MICROBENCH_RUNS       = 50
+	MICROBENCH_RUNS       = 10
 )
 
 func RunMicroBench() {
@@ -106,10 +106,14 @@ func RunMicroBench() {
 	mathrand.Seed(time.Now().UnixNano())
 	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
-	numHashes := float64(0)
 	totalNodes := 0
+	runTimesDeltaProof := make([]float64, MICROBENCH_RUNS)
+	avgHashes := 0
 
 	// Now we're ready to run the first benchmark, that benchmarks signature verification, MPT update and commitment
+
+	numHashes := float64(0)
+
 	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
 		logging.Debugf("Microbench: Running benchmark 1/3 [%d/%d]      ", iRun+1, MICROBENCH_RUNS)
 
@@ -161,14 +165,11 @@ func RunMicroBench() {
 		srv.Commit()
 	}
 
-	avgHashes := int32(numHashes / float64(MICROBENCH_RUNS))
-
+	avgHashes = int32(numHashes / float64(MICROBENCH_RUNS))
 	// Print raw values
 
 	// Add a new client, subscribe to a single log ID. Then repeatedly add statements to 1% of the other logs
 	// and measure the time to generate a proof update for the single log
-
-	runTimesDeltaProof := make([]float64, MICROBENCH_RUNS)
 
 	for iRun := 0; iRun < MICROBENCH_RUNS; iRun++ {
 		// Make the subset one bigger to ensure we can skip the randLogId
@@ -188,8 +189,13 @@ func RunMicroBench() {
 
 		srv.Commit()
 		start := time.Now()
-		srv.GetDeltaProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		p, err := srv.GetDeltaProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		logging.Debugf("Retrieved delta proof of size %d", p.ByteSize())
 		runTimesDeltaProof[iRun] = float64(time.Since(start).Nanoseconds())
+		if err != nil {
+			panic(err)
+		}
+
 	}
 
 	runTimesFullProof := make([]float64, MICROBENCH_RUNS)
@@ -212,8 +218,13 @@ func RunMicroBench() {
 
 		srv.Commit()
 		start := time.Now()
-		srv.GetProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		p, err := srv.GetProofForKeys([][]byte{logIds[randLogId*32 : randLogId*32+32]})
+		logging.Debugf("Retrieved full proof of size %d", p.ByteSize())
 		runTimesFullProof[iRun] = float64(time.Since(start).Nanoseconds())
+		if err != nil {
+			panic(err)
+		}
+
 	}
 
 	logging.Debugf("Microbench: Writing output                ")

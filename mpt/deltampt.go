@@ -83,7 +83,7 @@ func getUpdatesHelper(keys [][]byte, currentNode Node, currentBitIndex int) (Nod
 			return NewEmptyLeafNode()
 		}
 		// if non-empty send entire leaf
-		return NewDictionaryLeafNode(currentNode.GetKey(), currentNode.GetValue())
+		return NewDictionaryLeafNodeCachedHash(currentNode.GetKey(), currentNode.GetValue(), currentNode.GetHash())
 	}
 
 	// subcase: intermediate node
@@ -102,7 +102,7 @@ func getUpdatesHelper(keys [][]byte, currentNode Node, currentBitIndex int) (Nod
 	leftChild, _ := getUpdatesHelper(matchLeft, currentNode.GetLeftChild(), currentBitIndex+1)
 	rightChild, _ := getUpdatesHelper(matchRight, currentNode.GetRightChild(), currentBitIndex+1)
 
-	return NewInteriorNode(leftChild, rightChild)
+	return NewInteriorNodeWithCachedHash(leftChild, rightChild, currentNode.GetHash())
 }
 
 func copyChangesOnlyHelper(currentNode Node) (Node, error) {
@@ -114,7 +114,7 @@ func copyChangesOnlyHelper(currentNode Node) (Node, error) {
 			return NewEmptyLeafNode()
 		}
 		if currentNode.Changed() {
-			return NewDictionaryLeafNode(currentNode.GetKey(), currentNode.GetValue())
+			return NewDictionaryLeafNodeCachedHash(currentNode.GetKey(), currentNode.GetValue(), currentNode.GetHash())
 		}
 		// This statement below can never be reached. The node is _always_ changed because
 		// otherwise it'd be caught by the above `!currentNode.Changed()` clause.
@@ -126,7 +126,7 @@ func copyChangesOnlyHelper(currentNode Node) (Node, error) {
 	leftChild, _ := copyChangesOnlyHelper(currentNode.GetLeftChild())
 	rightChild, _ := copyChangesOnlyHelper(currentNode.GetRightChild())
 
-	return NewInteriorNode(leftChild, rightChild)
+	return NewInteriorNodeWithCachedHash(leftChild, rightChild, currentNode.GetHash())
 }
 
 // ByteSize returns the length of Bytes()
