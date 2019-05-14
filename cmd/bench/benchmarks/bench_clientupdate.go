@@ -98,14 +98,14 @@ func RunClientUpdateBench() {
 	var subset = logIdxsToChange[:]
 	logId := [32]byte{}
 
-	updateSizes := make([]int64, CLIENTUPDATE_TOTALLOGS/CLIENTUPDATE_UPDATESIZE_INCREMENT)
-
 	var wgProofUpdates sync.WaitGroup
 
 	numsChangeLogs := []int{10, 100, 1000, 10000, 100000}
 	for i := 200000; i < CLIENTUPDATE_TOTALLOGS; i += CLIENTUPDATE_UPDATESIZE_INCREMENT {
 		numsChangeLogs = append(numsChangeLogs, i)
 	}
+
+	updateSizes := make([]int64, len(numsChangeLogs))
 
 	for loop, numChangeLogs := range numsChangeLogs {
 		for i := 0; i < CLIENTUPDATE_SAMPLES; i++ {
@@ -126,7 +126,7 @@ func RunClientUpdateBench() {
 					panic(err)
 				}
 			}
-			logging.Debugf("[%d/%d] [%d/%d] Committing server [%d]", loop, CLIENTUPDATE_TOTALLOGS/CLIENTUPDATE_UPDATESIZE_INCREMENT, i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
+			logging.Debugf("[%d/%d] [%d/%d] Committing server [%d]", loop, len(numsChangeLogs), i+1, CLIENTUPDATE_SAMPLES, len(logIdxsToChange))
 			wgProofUpdates.Add(1)
 			clt.OnProofUpdate = func(proofUpdate []byte, client *client.Client) {
 				atomic.AddInt64(&updateSizes[loop], int64(len(proofUpdate)))
