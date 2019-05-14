@@ -102,7 +102,7 @@ func RunClientUpdateBench() {
 
 	var wgProofUpdates sync.WaitGroup
 
-	numsChangeLogs := []int(10, 100, 1000, 10000, 100000)
+	numsChangeLogs := []int{10, 100, 1000, 10000, 100000}
 	for i := 200000; i < CLIENTUPDATE_TOTALLOGS; i += CLIENTUPDATE_UPDATESIZE_INCREMENT {
 		numsChangeLogs = append(numsChangeLogs, i)
 	}
