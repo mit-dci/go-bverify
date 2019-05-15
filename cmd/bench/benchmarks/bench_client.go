@@ -97,6 +97,8 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 		if err != nil {
 			panic(err)
 		}
+		cl.AckTimeout = time.Minute * 10   // increase to ridiculous height, we're measuring it but we don't want it to time out
+		cl.ProofTimeout = time.Minute * 10 // increase to ridiculous height, we're measuring it but we don't want it to time out
 
 		cli[i] = &TestClient{cli: cl, logIDs: make([][32]byte, numLogs)}
 	}

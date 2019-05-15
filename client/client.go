@@ -89,6 +89,9 @@ type Client struct {
 	// Don't create actual signatures, just dummy ones - used for initialization during
 	// benchmarks
 	DummySignatures bool
+
+	AckTimeout   time.Duration
+	ProofTimeout time.Duration
 }
 
 // NewClientWithConnection creates a new b_verify client using the provided
@@ -136,6 +139,8 @@ func NewClient(key []byte, addr string) (*Client, error) {
 	}
 	cli.ReconnectOnFailure = true
 	cli.addr = addr
+	cli.AckTimeout = time.Second * 10
+	cli.ProofTimeout = time.Second * 10
 	return cli, nil
 }
 
@@ -637,7 +642,7 @@ func (c *Client) RequestProof(logIds [][32]byte) (*mpt.PartialMPT, error) {
 	case proof = <-c.proof:
 	case err = <-c.errChan:
 		return nil, err
-	case <-time.After(10 * time.Second):
+	case <-time.After(c.ProofTimeout):
 		return nil, fmt.Errorf("Timeout waiting for proof")
 	}
 
