@@ -16,7 +16,7 @@ import (
 
 const (
 	CLIENTDELTASIZE_TOTALLOGS = 10000000
-	CLIENTDELTASIZE_SAMPLES   = 5
+	CLIENTDELTASIZE_SAMPLES   = 25
 )
 
 // RunClientDeltaSizeBench will create 1M logs and then
@@ -69,15 +69,14 @@ func RunClientDeltaSizeBench() {
 		logIdIdx[i] = 0
 		logIdxsToChange[i] = i
 	}
-	mathrand.Seed(time.Now().UnixNano())
-	mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
 
 	logId := [32]byte{}
 
-	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 50; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_TOTALLOGS / 50 {
-		updates = 0
-		updateSizes = 0
+	for numChangeLogs := CLIENTDELTASIZE_TOTALLOGS / 20; numChangeLogs <= CLIENTDELTASIZE_TOTALLOGS; numChangeLogs += CLIENTDELTASIZE_TOTALLOGS / 20 {
 		for i := 0; i < CLIENTDELTASIZE_SAMPLES; i++ {
+			mathrand.Seed(time.Now().UnixNano())
+			mathrand.Shuffle(len(logIdxsToChange), func(i, j int) { logIdxsToChange[i], logIdxsToChange[j] = logIdxsToChange[j], logIdxsToChange[i] })
+
 			logging.Debugf("Measuring delta size with [%d/%d] updates, sample [%d/%d]", numChangeLogs, CLIENTDELTASIZE_TOTALLOGS, i+1, CLIENTDELTASIZE_SAMPLES)
 			// pick a changing random subset of logs every run
 			var subset = logIdxsToChange[:]
@@ -100,8 +99,8 @@ func RunClientDeltaSizeBench() {
 
 			wg.Add(1)
 			srv.Commit()
+			wg.Wait()
 		}
-		wg.Wait()
 
 		// We now know the average size of the proof updates for this number of updates.
 		graph.Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", numChangeLogs, updateSizes/updates)))
