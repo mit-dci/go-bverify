@@ -34,7 +34,7 @@ func main() {
 
 	flag.Parse()
 
-	if *cpuProfile != "" {
+	if *cpuProfile != "" && !*profileServer {
 		f, err := os.Create(*cpuProfile)
 		if err != nil {
 			logging.Errorf("could not create CPU profile: ", err)

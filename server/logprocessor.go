@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"io"
 	"net"
 
 	"github.com/mit-dci/go-bverify/crypto/fastsha256"
@@ -64,10 +63,7 @@ func (lp *ServerLogProcessor) SendProofs(delta *mpt.DeltaMPT) error {
 			return err
 		}
 
-		return lp.conn.WriteMessageToStream(wire.MessageTypeProofUpdate, clientDelta.ByteSize(), func(w io.Writer) (int, error) {
-			clientDelta.Serialize(w)
-			return clientDelta.ByteSize(), nil
-		})
+		return lp.conn.WriteMessage(wire.MessageTypeProofUpdate, clientDelta.Bytes())
 	}
 	return nil
 }
@@ -160,10 +156,7 @@ func (lp *ServerLogProcessor) ProcessRequestProof(msg *wire.RequestProofMessage)
 	if err != nil {
 		return err
 	}
-	return lp.conn.WriteMessageToStream(wire.MessageTypeProof, proof.ByteSize(), func(w io.Writer) (int, error) {
-		proof.Serialize(w)
-		return proof.ByteSize(), nil
-	})
+	return lp.conn.WriteMessage(wire.MessageTypeProof, proof.Bytes())
 }
 
 func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMessage) error {
@@ -183,10 +176,7 @@ func (lp *ServerLogProcessor) ProcessRequestDeltaProof(msg *wire.RequestProofMes
 	if err != nil {
 		return err
 	}
-	return lp.conn.WriteMessageToStream(wire.MessageTypeDeltaProof, proof.ByteSize(), func(w io.Writer) (int, error) {
-		proof.Serialize(w)
-		return proof.ByteSize(), nil
-	})
+	return lp.conn.WriteMessage(wire.MessageTypeDeltaProof, proof.Bytes())
 }
 
 func (lp *ServerLogProcessor) ProcessCreateLog(scls *wire.SignedCreateLogStatement) error {

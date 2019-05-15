@@ -76,74 +76,30 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 	return MessageType(bType[0]), bMsg, nil
 }
 
-// WriteMessagePrefix writes a message prefix to the transport of the given type t and length l
-func (c *Connection) writeMessagePrefix(t MessageType, l int) error {
-
-	bMsg := make([]byte, 5)
-	bMsg[0] = byte(t)
-	binary.BigEndian.PutUint32(bMsg[1:], uint32(l))
-	n, err := c.conn.Write(bMsg)
-	if err != nil {
-		return err
-	}
-	if n != 5 {
-		return fmt.Errorf("Not all bytes written. Expected 5, got %d", n)
-	}
-
-	return nil
-}
-
-func (c *Connection) WriteMessageToStream(t MessageType, l int, write func(io.Writer) (int, error)) error {
-	c.writeLock.Lock()
-	err := c.writeMessagePrefix(t, l)
-	if err != nil {
-		c.writeLock.Unlock()
-		return err
-	}
-	n, err := write(c.conn)
-	if err != nil {
-		c.writeLock.Unlock()
-		return err
-	}
-	if n != l {
-		c.writeLock.Unlock()
-		return fmt.Errorf("Not all bytes written. Expected %d, got %d", l, n)
-	}
-	c.writeLock.Unlock()
-	return nil
-}
-
 // WriteMessage writes a message to the transport of the given type t and payload m
 // it uses a  Mutex to prevent two threads writing at the same time.
 func (c *Connection) WriteMessage(t MessageType, m []byte) error {
+
+	bMsg := make([]byte, 5+len(m))
+	bMsg[0] = byte(t)
+	binary.BigEndian.PutUint32(bMsg[1:], uint32(len(m)))
+	if len(m) > 0 {
+		copy(bMsg[5:], m)
+	}
 	c.writeLock.Lock()
-	//logging.Debugf("[%p] Writing Prefix", c)
-	err := c.writeMessagePrefix(t, len(m))
-	//logging.Debugf("[%p] Prefix written", c)
+	n, err := c.conn.Write(bMsg)
 	if err != nil {
-		logging.Errorf("[%p] Error writing prefix: %s", c, err.Error())
+		logging.Errorf("[%p] Error writing message: %s", c, err.Error())
 		c.writeLock.Unlock()
 		return err
 	}
-
-	if len(m) > 0 {
-		//logging.Debugf("[%p] Writing message", c)
-		n, err := c.conn.Write(m)
-		//logging.Debugf("[%p] Message written", c)
-		if err != nil {
-			logging.Errorf("[%p] Error writing message: %s", c, err.Error())
-			c.writeLock.Unlock()
-			return err
-		}
-		if n != len(m) {
-			err = fmt.Errorf("Not all bytes written. Expected %d, got %d", len(m), n)
-			logging.Errorf("[%p] Error writing message: %s", c, err.Error())
-			c.writeLock.Unlock()
-			return err
-		}
+	if n != len(bMsg) {
+		err = fmt.Errorf("Not all bytes written. Expected %d, got %d", len(m), n)
+		logging.Errorf("[%p] Error writing message: %s", c, err.Error())
+		c.writeLock.Unlock()
+		return err
 	}
 	c.writeLock.Unlock()
-	//logging.Debugf("[%p] Sent [%x][%x]", c, []byte{byte(t)}, m)
 
 	return nil
 }
