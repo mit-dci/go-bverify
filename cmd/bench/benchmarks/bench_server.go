@@ -72,13 +72,6 @@ func RunServerBench(port int) {
 		panic(err)
 	}
 
-	commitTicker := time.NewTicker(time.Second * 5)
-	go func(s *server.Server) {
-		for range commitTicker.C {
-			s.Commit()
-		}
-	}(srv)
-
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		panic(err)
@@ -89,16 +82,23 @@ func RunServerBench(port int) {
 		panic(err)
 	}
 
+	committed := false
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for range c {
-			stop <- true
-			listener.Close()
+			if !committed {
+				srv.Commit()
+				committed = true
+			} else {
+				stop <- true
+				listener.Close()
+			}
 		}
 	}()
 
-	logging.Debugf("Starting server benchmark. Press ^C to end the benchmark and produce results.\n\nServer benchmark: Server is listening for requests. ")
+	logging.Debugf("Starting server benchmark. Press ^C to commit the server after the clients have sent in their logs, and then ^C to end the benchmark and produce results after the clients are done.\n\nServer benchmark: Server is listening for requests. ")
 
 	for {
 		breakOut := false

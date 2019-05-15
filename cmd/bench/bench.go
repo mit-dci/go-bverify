@@ -5,6 +5,9 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/mit-dci/go-bverify/cmd/bench/benchmarks"
 	"github.com/mit-dci/go-bverify/logging"
@@ -25,13 +28,30 @@ func main() {
 	clientBenchClients := flag.Int("clientbenchclients", 1000, "Number of clients to emulate")
 	clientBenchLogs := flag.Int("clientbenchlogs", 1000, "Number of logs to write per client")
 	clientBenchStatements := flag.Int("clientbenchstatements", 100, "Number of statements to write to each log")
-	profileMemory := flag.Bool("profile", false, "Profile memory usage")
+	profileServer := flag.Bool("profileserver", false, "Run a live profiling server")
+	memProfile := flag.String("memprofile", "mem.pprof", "Write a memory profile")
+	cpuProfile := flag.String("cpuprofile", "cpu.pprof", "Write a cpu profile")
 
 	flag.Parse()
 
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			logging.Errorf("could not create CPU profile: ", err)
+			return
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			logging.Errorf("could not start CPU profile: ", err)
+			return
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	logging.SetLogLevel(int(logging.LogLevelDebug))
 
-	if *profileMemory {
+	if *profileServer {
+
 		go func() {
 			log.Println("Profiling!")
 			log.Println(http.ListenAndServe(":6060", nil))
@@ -64,5 +84,18 @@ func main() {
 
 	if *runProofSizePerLog || *runAll {
 		benchmarks.RunProofSizePerLogBench()
+	}
+
+	if *memProfile != "" {
+		f, err := os.Create(*memProfile)
+		if err != nil {
+			logging.Errorf("could not create memory profile: ", err)
+			return
+		}
+		defer f.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			logging.Errorf("could not write memory profile: ", err)
+		}
 	}
 }

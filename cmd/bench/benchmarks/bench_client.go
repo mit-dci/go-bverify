@@ -2,6 +2,7 @@ package benchmarks
 
 import (
 	"crypto/rand"
+	"os/signal"
 
 	"fmt"
 	"net"
@@ -136,9 +137,12 @@ func RunClientBench(host string, port, numClients, numLogs, numStatements int) {
 		wg.Wait()
 	}
 
-	logging.Debugf("Added all statements, waiting for the server to commit")
+	logging.Debugf("Added all statements, press ^C when the server has committed")
 
-	time.Sleep(time.Second * 15) // Wait for the server to process the commitments
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
+	<-c
 
 	logging.Debugf("Requesting proofs")
 	for _, c := range cli {
