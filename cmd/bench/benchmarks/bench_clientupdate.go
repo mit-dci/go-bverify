@@ -18,8 +18,8 @@ import (
 
 const (
 	CLIENTUPDATE_TOTALLOGS            = 10000000
-	CLIENTUPDATE_UPDATESIZE_INCREMENT = 200000
-	CLIENTUPDATE_SAMPLES              = 5
+	CLIENTUPDATE_UPDATESIZE_INCREMENT = 500000
+	CLIENTUPDATE_SAMPLES              = 10
 )
 
 type receivedProofUpdate struct {
@@ -101,7 +101,7 @@ func RunClientUpdateBench() {
 	var wgProofUpdates sync.WaitGroup
 
 	numsChangeLogs := []int{10, 100, 1000, 10000, 100000}
-	for i := 200000; i < CLIENTUPDATE_TOTALLOGS; i += CLIENTUPDATE_UPDATESIZE_INCREMENT {
+	for i := CLIENTUPDATE_UPDATESIZE_INCREMENT; i < CLIENTUPDATE_TOTALLOGS; i += CLIENTUPDATE_UPDATESIZE_INCREMENT {
 		numsChangeLogs = append(numsChangeLogs, i)
 	}
 
@@ -146,7 +146,7 @@ func RunClientUpdateBench() {
 	graph.Write([]byte("\n\t\t\t\\addplot[color=red,mark=x] coordinates {\n"))
 	for i, us := range updateSizes {
 		averageUpdateSizeKBDay := float64(us) / float64(CLIENTUPDATE_SAMPLES) / float64(1024) * float64(144)
-		graph.Write([]byte(fmt.Sprintf("\t\t\t\t(%d,%.4f)\n", i*CLIENTUPDATE_UPDATESIZE_INCREMENT, averageUpdateSizeKBDay)))
+		graph.Write([]byte(fmt.Sprintf("\t\t\t\t(%d,%.4f)\n", numsChangeLogs[i], averageUpdateSizeKBDay)))
 	}
 	graph.Write([]byte("\t\t};"))
 	graph.Write([]byte("\n\t\t\\end{axis}\n\t\\end{tikzpicture}\n"))
