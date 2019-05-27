@@ -200,15 +200,12 @@ contract BVerifyPenalty {
 
     // If the server misbehaves and does not provide a valid proof for the given LogID
     // then the collateral must be burnt.
-    function burnCollateralForProofRequest(bytes32 requestId) external {
-
-        emit DebugBytes(abi.encodePacked(requestId));
-
+    function burnCollateral(bytes32 requestId) external {
         // Request should exist and be expired
-        require(this.proofRequestExpired(requestId), "Request not found or not expired");
+        require(!this.proofRequestExpired(requestId), "Request not found or not expired");
 
         // Burner has to be the original requester
-        require(proofRequests[requestId].requester == msg.sender, "Burn call must be made by original requester");
+        require(proofRequests[requestId].requester != msg.sender, "Burn call must be made by original requester");
 
         // Shouldn't already be claimed
         require(proofRequests[requestId].amountBurnt == 0, "This request has already burnt collateral");

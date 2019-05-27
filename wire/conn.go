@@ -71,7 +71,6 @@ func (c *Connection) ReadNextMessage() (MessageType, []byte, error) {
 		}
 
 	}
-	//logging.Debugf("[%p] Received [%x][%x]", c, bType, bMsg)
 
 	return MessageType(bType[0]), bMsg, nil
 }
@@ -100,6 +99,5 @@ func (c *Connection) WriteMessage(t MessageType, m []byte) error {
 		return err
 	}
 	c.writeLock.Unlock()
-
 	return nil
 }

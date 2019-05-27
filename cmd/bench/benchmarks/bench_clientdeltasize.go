@@ -6,8 +6,9 @@ import (
 	mathrand "math/rand"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/gonum/stat"
 
 	"github.com/mit-dci/go-bverify/client"
 	"github.com/mit-dci/go-bverify/logging"
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	CLIENTDELTASIZE_TOTALLOGS = 10000000
+	CLIENTDELTASIZE_TOTALLOGS = 100000
 	CLIENTDELTASIZE_SAMPLES   = 25
 )
 
@@ -28,13 +29,12 @@ func RunClientDeltaSizeBench() {
 		panic(err)
 	}
 	srv.AutoCommit = false
-	srv.KeepCommitmentTree = false
 
 	// Output a TEX graph
 	graph, _ := os.Create("graph_clientdeltasize.tex")
 	graph.Write([]byte("\\begin{figure}\n\t\\begin{tikzpicture}\n\t\\begin{axis}[\n"))
 	graph.Write([]byte("\t\txlabel=Number of updated logs out of $10^7$,\n\t\tylabel=Delta update size (bytes)]\n"))
-	graph.Write([]byte("\n\t\t\\addplot[color=red,mark=x] coordinates {\n"))
+	graph.Write([]byte("\n\t\t\\addplot[color=red,mark=x,error bars/.cd,x dir=both,x explicit] coordinates {\n"))
 	graph.Write([]byte("\t\t\t(0,0)\n"))
 	defer graph.Close()
 
@@ -52,11 +52,14 @@ func RunClientDeltaSizeBench() {
 	srv.Commit()
 
 	var wg sync.WaitGroup
-	var updates, updateSizes int64
+	updateSizes := []float64{}
+	updateSizesLock := sync.Mutex{}
 
 	c.OnProofUpdate = func(proofUpdate []byte, client *client.Client) {
-		atomic.AddInt64(&updates, 1)
-		atomic.AddInt64(&updateSizes, int64(len(proofUpdate)))
+		logging.Debugf("Got proof update len %d", len(proofUpdate))
+		updateSizesLock.Lock()
+		updateSizes = append(updateSizes, float64(len(proofUpdate)))
+		updateSizesLock.Unlock()
 
 		wg.Done()
 	}
@@ -103,9 +106,10 @@ func RunClientDeltaSizeBench() {
 		}
 
 		// We now know the average size of the proof updates for this number of updates.
-		graph.Write([]byte(fmt.Sprintf("\t\t\t(%d,%d)\n", numChangeLogs, updateSizes/updates)))
 
-		updates, updateSizes = 0, 0
+		graph.Write([]byte(fmt.Sprintf("\t\t\t(%d,%f) +- (%f,0)\n", numChangeLogs, average(updateSizes), stat.StdDev(updateSizes, nil))))
+		logging.Debugf("RAW Update Sizes: %v", updateSizes)
+		updateSizes = []float64{}
 	}
 
 	// Write end markers to the tex file and we're done.

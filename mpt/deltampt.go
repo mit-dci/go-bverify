@@ -143,7 +143,7 @@ func (dm *DeltaMPT) Bytes() []byte {
 	b := make([]byte, 0, dm.ByteSize())
 	buf := bytes.NewBuffer(b)
 	dm.Serialize(buf)
-	return b
+	return buf.Bytes()
 }
 
 func (dm *DeltaMPT) Copy() (*DeltaMPT, error) {

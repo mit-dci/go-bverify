@@ -14,7 +14,7 @@ const (
 	PROOFSIZEPERLOG_TOTALLOGS   = 10000000
 	PROOFSIZEPERLOG_INCREMENTS  = 100
 	PROOFSIZEPERLOG_MAXLOGCOUNT = 10000
-	PROOFSIZEPERLOG_SAMPLELIMIT = 50
+	PROOFSIZEPERLOG_SAMPLELIMIT = 10
 )
 
 // RunProofSizePerLogBench will add 10M logs and
@@ -54,9 +54,10 @@ func RunProofSizePerLogBench() {
 
 	// Make an arrays for keeping the total size of received
 	// proofs, one element per proofLogs element
-	var receivedProofs, receivedProofSizes int64
 
 	for idx := 0; idx < loops; idx++ {
+		var receivedProofs, receivedProofSizes int64
+
 		logging.Debugf("Running proof size per log benchmark: [Generating proofs %d / %d]                  ", idx, loops)
 
 		pl := ((idx + 1) * PROOFSIZEPERLOG_INCREMENTS)

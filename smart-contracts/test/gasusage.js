@@ -86,4 +86,11 @@ const sleep = function(ms) {
             console.log("Gas used for respondAppendStatementWithWrongKey: ", txReceipt.receipt.gasUsed);
         });
 
+        it("test burnCollateral gas usage", async function() {
+            var txReceipt = await params.penaltyContract.burnCollateral.sendTransaction(
+                "0x010000000001012f00c06758bddd3ced39d3110d73994eed7940618a49b72c46",
+            { from: params.accounts[0], gasLimit: 10000000 });
+            console.log("Gas used for burnCollateral: ", txReceipt.receipt.gasUsed);
+        });
+
     });

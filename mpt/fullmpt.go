@@ -264,7 +264,7 @@ func (fm *FullMPT) Bytes() []byte {
 	b := make([]byte, 0, fm.ByteSize())
 	buf := bytes.NewBuffer(b)
 	fm.Serialize(buf)
-	return b
+	return buf.Bytes()
 }
 
 // Bytes serializes the FullMPT into a byte slice
