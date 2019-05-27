@@ -27,3 +27,34 @@ You can run the server by executing the `server` executable. Make sure the follo
 | `BITCOINRPCPASSWORD` | The password for the Bitcoin RPC server                          | `bverify`         |
 
 
+## Code structure
+
+The code in this project is structed as follows:
+
+| Folder                                | Description                                                                       | 
+|---------------------------------------|-----------------------------------------------------------------------------------|
+| [`bitcoin`](bitcoin/)                 | Various imported libraries for Bitcoin                                            |
+| [`client`](client/)                   | B_Verify client libraries                                                         | 
+| [`client/uspv`](client/uspv)          | Simple Payment Verification library that is used to download headers from Bitcoin | 
+| [`cmd/bench`](cmd/bench)              | Command-line utility for running the benchmarks included in the B_Verify paper    |
+| [`cmd/server`](cmd/server)            | Entry point for running the B_Verify server                                       |
+| [`crypto`](crypto/)                   | Cryptographic functions and imports for witnessing and signature verification     |
+| [`logging`](logging/)                 | Very simple logging framework                                                     |
+| [`mobile`](mobile/)                   | The entrypoint for the `gomobile` library used in the Android and iOS Client      |
+| [`mpt`](mpt/)                         | Implementation of the Merkle Prefix Trie                                          |
+| [`server`](server/)                   | Classes containing the B_Verify server logic                                      |
+| [`smart-contracts`](smart-contracts/) | (Proof-of-concept) implementation of the Penalty Smart Contract                   |
+| [`utils`](utils/)                     | Various utility functions                                                         |
+| [`wallet`](wallet/)                   | Class for tracking UTXOs for the server (used to create witness transactions)     |
+| [`wire`](wire/)                       | Classes for client/server communication                                           |
+
+## Related repositories
+
+### [BVerify-Mobile](https://github.com/mit-dci/bverify-mobile)
+
+This repository contains the iOS and Android applications that are used for verifying the witnessed statements
+
+### [BVerify-Sensor](https://github.com/mit-dci/bverify-sensor)
+
+This repository contains an integrated example for a sensor reader that commits to a b_verify server
+
